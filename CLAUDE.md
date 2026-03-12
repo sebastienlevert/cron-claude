@@ -4,10 +4,11 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**Cron-Claude** - An MCP (Model Context Protocol) server that enables scheduled, automated execution of Claude tasks using Windows Task Scheduler. Define tasks in markdown files, schedule them with cron expressions, and let Claude run them automatically.
+**Cron-Claude** - An MCP (Model Context Protocol) server that enables scheduled, automated execution of coding agent tasks using Windows Task Scheduler. Define tasks in markdown files, schedule them with cron expressions, and let your preferred coding agent (Claude Code, GitHub Copilot CLI, or API) run them automatically.
 
 **Key Features:**
 - 11 MCP tools for complete task lifecycle management
+- Multi-agent support (Claude Code, GitHub Copilot CLI)
 - Windows Task Scheduler integration for reliable execution
 - CLI and API invocation modes
 - Cryptographic audit logging with HMAC-SHA256 signatures
@@ -62,7 +63,8 @@ npm run prepack      # Build before publishing
 
 - **`executor.ts`** - Task execution engine
   - Reads task definitions from markdown files
-  - Executes via CLI (`claude-code`) or API (Anthropic API)
+  - Executes via configured agent CLI or API (Anthropic API)
+  - Supports multiple coding agents (Claude Code, GitHub Copilot CLI)
   - Manages execution lifecycle
   - Integrates with logger and notifier
 
@@ -86,6 +88,12 @@ npm run prepack      # Build before publishing
 - **`types.ts`** - Shared TypeScript types
   - `TaskDefinition`, `TaskLog`, `LogStep`
   - `Config`, `ExecutionResult`
+  - `AgentType`, `AgentConfig`
+
+- **`agents.ts`** - Coding agent registry
+  - Agent definitions for Claude Code and GitHub Copilot CLI
+  - Agent detection (PATH search, environment variables)
+  - CLI argument configuration per agent
 
 ### Data Flow
 
@@ -114,6 +122,7 @@ npm run prepack      # Build before publishing
 id: my-task
 schedule: "0 9 * * *"
 invocation: cli
+agent: claude
 notifications:
   toast: true
 enabled: true
@@ -121,7 +130,7 @@ enabled: true
 
 # Task Instructions
 
-Instructions for Claude in markdown format...
+Instructions for the coding agent in markdown format...
 ```
 
 ### Dependencies
@@ -186,10 +195,14 @@ This helps users discover cron functionality in new sessions.
 ## Invocation Methods
 
 **CLI Mode** (`invocation: cli`)
-- Executes: `claude-code --file <task-file>`
-- Full Claude environment with all tools
+- Agent selection via `agent` field in task definition
+- Supported agents:
+  - `claude` (default): Executes via `claude-code` CLI
+  - `copilot`: Executes via `copilot` (GitHub Copilot CLI)
+- Full agent environment with all tools
 - Best for: Complex tasks requiring multiple tools
-- Requires: Claude CLI installed and in PATH
+- Requires: Selected agent CLI installed and in PATH
+- Override paths via environment variables: `CLAUDE_CODE_PATH`, `COPILOT_CLI_PATH`
 
 **API Mode** (`invocation: api`)
 - Direct Anthropic API calls
@@ -314,7 +327,8 @@ Errors are surfaced to Claude with clear, actionable messages.
 - **OS:** Windows 10/11 (uses Windows Task Scheduler)
 - **Node.js:** >= 18.0.0
 - **Claude Code:** With MCP support
-- **Claude CLI:** For CLI invocation mode (optional)
+- **Claude CLI:** For Claude agent mode (optional)
+- **GitHub Copilot CLI:** For Copilot agent mode (optional)
 - **Anthropic API Key:** For API invocation mode (optional)
 
 ## Installation for Users

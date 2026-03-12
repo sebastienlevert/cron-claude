@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@patrick-rodgers/cron-claude)](https://www.npmjs.com/package/@patrick-rodgers/cron-claude)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Automated task scheduling for Claude via Windows Task Scheduler.** This MCP server enables Claude to execute tasks automatically on recurring schedules—perfect for daily reports, backups, monitoring, and more.
+**Automated task scheduling for AI coding agents via Windows Task Scheduler.** This MCP server enables Claude, GitHub Copilot CLI, and other coding agents to execute tasks automatically on recurring schedules—perfect for daily reports, backups, monitoring, and more.
 
 ## 🚀 Installation
 
@@ -45,7 +45,8 @@ Restart Claude Desktop after adding the configuration.
 
 - **Windows 10/11** - Uses Windows Task Scheduler
 - **Node.js 18+** ([Download](https://nodejs.org/))
-- **Claude CLI** (optional) - For CLI invocation mode
+- **Claude CLI** (optional) - For Claude CLI invocation mode
+- **GitHub Copilot CLI** (optional) - For Copilot CLI invocation mode
 - **Anthropic API Key** (optional) - For API invocation mode
 
 ## ✨ Features
@@ -55,7 +56,8 @@ Restart Claude Desktop after adding the configuration.
 - 🔐 **Audit Logging** - HMAC-SHA256 signatures for tamper-proof logs
 - 💾 **Simple File Storage** - Tasks and logs stored as markdown files (easy to backup)
 - 🔔 **Toast Notifications** - Optional Windows notifications on completion
-- 🎯 **Flexible Execution** - Run via Claude CLI or Anthropic API
+- 🎯 **Flexible Execution** - Run via Claude CLI, GitHub Copilot CLI, or Anthropic API
+- 🤖 **Multi-Agent Support** - Choose your preferred coding agent (Claude Code, GitHub Copilot CLI)
 - 🔌 **Full MCP Integration** - Works seamlessly in all Claude Code sessions
 - 📁 **Configurable Directories** - Store tasks and logs wherever you want
 
@@ -70,6 +72,7 @@ Tasks are defined in markdown files with YAML frontmatter:
 id: daily-summary
 schedule: "0 9 * * *"  # Every day at 9 AM
 invocation: cli         # 'cli' or 'api'
+agent: claude           # 'claude' or 'copilot'
 notifications:
   toast: true
 enabled: true
@@ -215,15 +218,30 @@ Verify the integrity of the logs for my backup task
 
 ### CLI Mode (`invocation: cli`)
 
+CLI mode executes tasks using a coding agent CLI. You can choose which agent to use with the `agent` field.
+
+#### Claude Code (`agent: claude`) - Default
+
 - Uses local `claude-code` command
 - Full Claude environment with all tools
 - Best for complex, interactive tasks
 - Requires Claude CLI installed
+- Override path with `CLAUDE_CODE_PATH` env var
 
 **Example use cases:**
 - Tasks requiring file operations
 - Tasks using other MCP tools
 - Complex multi-step workflows
+
+#### GitHub Copilot CLI (`agent: copilot`)
+
+- Uses `copilot` command
+- GitHub Copilot-powered task execution
+- Override path with `COPILOT_CLI_PATH` env var
+
+**Example use cases:**
+- Tasks leveraging GitHub ecosystem
+- Copilot-specific workflows
 
 ### API Mode (`invocation: api`)
 
@@ -318,6 +336,7 @@ When used with Claude Code, this plugin includes:
 id: daily-summary
 schedule: "0 9 * * *"
 invocation: cli
+agent: claude
 notifications:
   toast: true
 enabled: true
@@ -340,6 +359,7 @@ Format as a concise report.
 id: weekly-backup
 schedule: "0 0 * * 0"
 invocation: cli
+agent: copilot
 notifications:
   toast: true
 enabled: true
@@ -476,6 +496,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 - [Claude Desktop](https://claude.ai/download)
 - [Claude Code CLI](https://github.com/anthropics/claude-code)
+- [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 
 ---
 

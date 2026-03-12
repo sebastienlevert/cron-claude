@@ -14,13 +14,12 @@ import {
 import { readFileSync, readdirSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
 import matter from 'gray-matter';
 import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } from './scheduler.js';
 import { executeTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
-import { TaskDefinition } from './types.js';
+import { TaskDefinition, AgentType } from './types.js';
 import {
   createTask,
   getTask,
@@ -28,6 +27,7 @@ import {
   taskExists,
   getTaskFilePath,
 } from './tasks.js';
+import { getSupportedAgents, getAgentConfig, detectAgentPath, getDefaultAgent, isValidAgent } from './agents.js';
 
 // Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -60,8 +60,14 @@ const tools: Tool[] = [
         invocation: {
           type: 'string',
           enum: ['cli', 'api'],
-          description: 'Execution method: cli (Claude CLI) or api (Anthropic API)',
+          description: 'Execution method: cli (coding agent CLI) or api (Anthropic API)',
           default: 'cli',
+        },
+        agent: {
+          type: 'string',
+          enum: ['claude', 'copilot'],
+          description: 'Coding agent to use for CLI execution: claude (Claude Code) or copilot (GitHub Copilot CLI). Defaults to claude.',
+          default: 'claude',
         },
         instructions: {
           type: 'string',
@@ -242,13 +248,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'cron_create_task': {
-        const { task_id, schedule, invocation, instructions, toast_notifications, enabled } =
+        const { task_id, schedule, invocation, agent, instructions, toast_notifications, enabled } =
           args as any;
+
+        // Validate agent if provided
+        const agentType: AgentType = agent && isValidAgent(agent) ? agent : getDefaultAgent();
 
         const taskDef: TaskDefinition = {
           id: task_id,
           schedule: schedule || '0 9 * * *',
           invocation: invocation || 'cli',
+          agent: agentType,
           notifications: { toast: toast_notifications !== false },
           enabled: enabled !== false,
           instructions,
@@ -307,7 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const filePath = getTaskFilePath(task_id);
-        registerTask(task_id, filePath, task.schedule, PROJECT_ROOT);
+        registerTask(task_id, filePath, task.schedule, PROJECT_ROOT, task.agent);
 
         return {
           content: [
@@ -356,6 +366,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             output += `📋 ${task.id}\n`;
             output += `   Schedule: ${task.schedule}\n`;
             output += `   Method: ${task.invocation}\n`;
+            output += `   Agent: ${task.agent}\n`;
             output += `   Enabled (file): ${task.enabled ? '✓' : '✗'}\n`;
 
             if (status.exists) {
@@ -432,31 +443,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const filePath = getTaskFilePath(task_id);
 
-        // Detect claude path for CLI tasks
-        let claudePath: string | undefined;
+        // Detect agent path for CLI tasks
+        let agentCliPath: string | undefined;
         if (task.invocation === 'cli') {
-          try {
-            // Try to find claude or claude-code
-            const commands = process.platform === 'win32'
-              ? ['where claude', 'where claude-code']
-              : ['which claude', 'which claude-code'];
-
-            for (const cmd of commands) {
-              try {
-                const result = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-                if (result) {
-                  claudePath = result.split('\n')[0].trim();
-                  break;
-                }
-              } catch {
-                continue;
-              }
-            }
-          } catch {}
+          agentCliPath = detectAgentPath(task.agent) || undefined;
         }
 
-        // Execute task with claude path if found
-        await executeTask(filePath, claudePath);
+        // Execute task with agent path if found
+        await executeTask(filePath, agentCliPath);
 
         return {
           content: [
@@ -575,8 +569,15 @@ Secret key: ${config.secretKey ? '✓ Configured' : '✗ Not configured'}
 Node version: ${process.version}
 Platform: ${process.platform}
 
+Supported Agents:
+${getSupportedAgents().map(a => {
+  const ac = getAgentConfig(a);
+  const detected = detectAgentPath(a);
+  return `- ${ac.displayName} (${a}): ${detected ? `✓ Found at ${detected}` : '✗ Not found'}`;
+}).join('\n')}
+
 Available tools:
-- cron_create_task - Create new scheduled tasks
+- cron_create_task - Create new scheduled tasks (supports agent selection)
 - cron_register_task - Register with Task Scheduler
 - cron_list_tasks - View all tasks
 - cron_run_task - Execute immediately
@@ -618,6 +619,7 @@ Available tools:
 id: ${task.id}
 schedule: "${task.schedule}"
 invocation: ${task.invocation}
+agent: ${task.agent}
 notifications:
   toast: ${task.notifications.toast}
 enabled: ${task.enabled}
@@ -628,6 +630,7 @@ ${task.instructions}`;
         let output = `Task: ${task_id}\n\n`;
         output += `Schedule: ${task.schedule}\n`;
         output += `Method: ${task.invocation}\n`;
+        output += `Agent: ${task.agent}\n`;
         output += `Enabled: ${task.enabled}\n`;
         output += `Notifications: ${task.notifications?.toast ? 'Yes' : 'No'}\n`;
         output += `Registered: ${status.exists ? 'Yes' : 'No'}\n\n`;

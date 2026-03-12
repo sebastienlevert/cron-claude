@@ -10,6 +10,7 @@ import matter from 'gray-matter';
 import { TaskDefinition, ExecutionResult, TaskLog } from './types.js';
 import { createLog, addLogStep, finalizeLog } from './logger.js';
 import { sendNotification } from './notifier.js';
+import { getAgentConfig, detectAgentPath, getDefaultAgent } from './agents.js';
 
 /**
  * Parse task definition from markdown file
@@ -22,6 +23,7 @@ export function parseTaskDefinition(filePath: string): TaskDefinition {
     id: parsed.data.id || 'unknown',
     schedule: parsed.data.schedule || '0 0 * * *',
     invocation: parsed.data.invocation || 'cli',
+    agent: parsed.data.agent || getDefaultAgent(),
     notifications: parsed.data.notifications || { toast: false },
     enabled: parsed.data.enabled !== false, // Default to true
     instructions: parsed.content,
@@ -31,14 +33,16 @@ export function parseTaskDefinition(filePath: string): TaskDefinition {
 }
 
 /**
- * Execute task via Claude CLI (visible interactive session)
+ * Execute task via coding agent CLI (visible interactive session)
+ * Supports multiple agents (Claude Code, GitHub Copilot CLI, etc.)
  */
 async function executeViaCLI(
   task: TaskDefinition,
   log: TaskLog,
-  claudeCodePath?: string
+  agentPath?: string
 ): Promise<ExecutionResult> {
-  addLogStep(log, 'Starting interactive Claude session');
+  const agentConfig = getAgentConfig(task.agent);
+  addLogStep(log, `Starting ${agentConfig.displayName} CLI session`);
 
   return new Promise((resolve) => {
     try {
@@ -48,15 +52,18 @@ async function executeViaCLI(
 
       addLogStep(log, 'Created temporary task file', tempFile);
 
-      // Spawn Claude in visible interactive mode (no --print flag)
-      const claudeCommand = claudeCodePath || process.env.CLAUDE_CODE_PATH || 'claude-code';
-      addLogStep(log, 'Launching Claude CLI (visible window)', `Using: ${claudeCommand}`);
+      // Resolve the agent command
+      const agentCommand = agentPath
+        || process.env[agentConfig.pathEnvVar]
+        || detectAgentPath(task.agent)
+        || agentConfig.executables[0];
 
-      const claude = spawn(claudeCommand, [
-        '--print',                         // Exit after completing the task
-        '--dangerously-skip-permissions',  // Skip permission prompts
-        tempFile
-      ], {
+      addLogStep(log, `Launching ${agentConfig.displayName} CLI`, `Using: ${agentCommand}`);
+
+      // Build CLI arguments from agent config
+      const cliArgs = [...agentConfig.printArgs, tempFile];
+
+      const agentProcess = spawn(agentCommand, cliArgs, {
         stdio: 'inherit', // Use parent's stdio (makes window visible)
         shell: true,
         detached: false
@@ -65,7 +72,7 @@ async function executeViaCLI(
       // Set timeout (5 minutes default)
       const timeout = setTimeout(() => {
         addLogStep(log, 'Execution timeout', 'Task exceeded 5 minute limit');
-        claude.kill('SIGTERM');
+        agentProcess.kill('SIGTERM');
         resolve({
           success: false,
           output: '',
@@ -74,8 +81,8 @@ async function executeViaCLI(
         });
       }, 5 * 60 * 1000);
 
-      claude.on('close', (code) => {
-        clearTimeout(timeout); // Clear the timeout since task completed
+      agentProcess.on('close', (code) => {
+        clearTimeout(timeout);
 
         // Clean up temp file
         try {
@@ -86,26 +93,26 @@ async function executeViaCLI(
         }
 
         if (code === 0) {
-          addLogStep(log, 'Claude session completed successfully', `Exit code: ${code}`);
+          addLogStep(log, `${agentConfig.displayName} session completed successfully`, `Exit code: ${code}`);
           resolve({
             success: true,
-            output: 'Interactive session completed (see Claude window for details)',
+            output: `Interactive session completed via ${agentConfig.displayName}`,
             steps: log.steps,
           });
         } else {
-          addLogStep(log, 'Claude session exited with error', `Exit code: ${code}`);
+          addLogStep(log, `${agentConfig.displayName} session exited with error`, `Exit code: ${code}`);
           resolve({
             success: false,
             output: '',
-            error: `Claude exited with code ${code}`,
+            error: `${agentConfig.displayName} exited with code ${code}`,
             steps: log.steps,
           });
         }
       });
 
-      claude.on('error', (err) => {
+      agentProcess.on('error', (err) => {
         clearTimeout(timeout);
-        addLogStep(log, 'Failed to launch Claude', undefined, err.message);
+        addLogStep(log, `Failed to launch ${agentConfig.displayName}`, undefined, err.message);
         resolve({
           success: false,
           output: '',
@@ -195,13 +202,13 @@ async function executeViaAPI(
 /**
  * Execute a task
  */
-export async function executeTask(taskFilePath: string, claudeCodePath?: string): Promise<void> {
+export async function executeTask(taskFilePath: string, agentPath?: string): Promise<void> {
   // Parse task definition
   const task = parseTaskDefinition(taskFilePath);
 
   // Create log
   const log = createLog(task.id);
-  addLogStep(log, 'Task execution started', `Task: ${task.id}, Method: ${task.invocation}`);
+  addLogStep(log, 'Task execution started', `Task: ${task.id}, Method: ${task.invocation}, Agent: ${task.agent}`);
 
   // Check if task is enabled
   if (!task.enabled) {
@@ -214,7 +221,7 @@ export async function executeTask(taskFilePath: string, claudeCodePath?: string)
   let result: ExecutionResult;
 
   if (task.invocation === 'cli') {
-    result = await executeViaCLI(task, log, claudeCodePath);
+    result = await executeViaCLI(task, log, agentPath);
   } else if (task.invocation === 'api') {
     result = await executeViaAPI(task, log);
   } else {
@@ -232,7 +239,7 @@ export async function executeTask(taskFilePath: string, claudeCodePath?: string)
       await sendNotification(
         `Task ${task.id} ${result.success ? 'completed' : 'failed'}`,
         result.success
-          ? `Task executed successfully`
+          ? `Task executed successfully via ${task.agent}`
           : `Task failed: ${result.error || 'Unknown error'}`
       );
     } catch (error) {
@@ -246,17 +253,17 @@ export async function executeTask(taskFilePath: string, claudeCodePath?: string)
  * Called by Windows Task Scheduler
  */
 export async function main() {
-  // Get task file path and optional claude-code path from command line arguments
+  // Get task file path and optional agent path from command line arguments
   const taskFile = process.argv[2];
-  const claudeCodePath = process.argv[3]; // Optional: full path to claude-code executable
+  const agentPath = process.argv[3]; // Optional: full path to agent CLI executable
 
   if (!taskFile) {
-    console.error('Usage: node executor.js <task-file-path> [claude-code-path]');
+    console.error('Usage: node executor.js <task-file-path> [agent-cli-path]');
     process.exit(1);
   }
 
   try {
-    await executeTask(taskFile, claudeCodePath);
+    await executeTask(taskFile, agentPath);
     process.exit(0);
   } catch (error) {
     console.error('Fatal error:', error);

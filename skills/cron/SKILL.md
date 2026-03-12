@@ -1,14 +1,15 @@
 # Cron-Claude Skill
 
-Automated task scheduling and execution for Claude via Windows Task Scheduler.
+Automated task scheduling and execution for AI coding agents via Windows Task Scheduler.
 
 ## Overview
 
-Cron-Claude enables you to schedule Claude to perform tasks automatically on recurring schedules. Tasks are defined in markdown files and executed via Windows Task Scheduler.
+Cron-Claude enables you to schedule coding agent tasks (Claude Code, GitHub Copilot CLI, or API) to perform tasks automatically on recurring schedules. Tasks are defined in markdown files and executed via Windows Task Scheduler.
 
 ## Features
 
 - 🕐 Schedule tasks with cron expressions
+- 🤖 Multi-agent support (Claude Code, GitHub Copilot CLI)
 - 🔐 Cryptographic audit logging with HMAC signatures
 - 💾 Logs stored via memory integration
 - 🔔 Optional Windows toast notifications
@@ -51,6 +52,7 @@ Tasks are markdown files with YAML frontmatter:
 id: my-task
 schedule: "0 9 * * *"  # Daily at 9 AM
 invocation: cli         # 'cli' or 'api'
+agent: claude           # 'claude' or 'copilot'
 notifications:
   toast: true
 enabled: true
@@ -58,8 +60,15 @@ enabled: true
 
 # Task Instructions
 
-Your instructions for Claude in markdown format.
+Your instructions for the coding agent in markdown format.
 ```
+
+## Supported Agents
+
+| Agent | Value | CLI Command | Description |
+|-------|-------|-------------|-------------|
+| Claude Code | `claude` | `claude-code` | Anthropic Claude Code CLI (default) |
+| GitHub Copilot CLI | `copilot` | `copilot` | GitHub Copilot CLI |
 
 ## Cron Schedule Format
 
@@ -83,10 +92,10 @@ Your instructions for Claude in markdown format.
 ## Invocation Methods
 
 **CLI Mode** (`invocation: cli`)
-- Uses local `claude-code` command
-- Full Claude environment with all tools
+- Executes via a coding agent CLI
+- Choose agent with `agent` field: `claude` (default) or `copilot`
 - Best for complex, interactive tasks
-- Requires Claude CLI installed
+- Requires selected agent CLI installed
 
 **API Mode** (`invocation: api`)
 - Direct Anthropic API calls
@@ -123,7 +132,8 @@ Logs are stored via the memory integration and can be verified for authenticity.
 - Windows 10/11
 - Node.js >= 18.0.0
 - Claude Code with MCP support
-- Claude CLI (for CLI mode)
+- Claude CLI (for Claude agent mode)
+- GitHub Copilot CLI (for Copilot agent mode)
 - Anthropic API Key (for API mode)
 
 ## Troubleshooting

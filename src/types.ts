@@ -2,10 +2,26 @@
  * Core types for cron-claude system
  */
 
+export type AgentType = 'claude' | 'copilot';
+
+export interface AgentConfig {
+  name: string;
+  displayName: string;
+  /** Executable names to search for (in priority order) */
+  executables: string[];
+  /** CLI arguments for non-interactive print mode */
+  printArgs: string[];
+  /** Environment variable to override the agent path */
+  pathEnvVar: string;
+  /** Description shown in help text */
+  description: string;
+}
+
 export interface TaskDefinition {
   id: string;
   schedule: string; // Cron expression
   invocation: 'cli' | 'api';
+  agent: AgentType; // Which coding agent CLI to use
   notifications: {
     toast: boolean;
   };

@@ -8,11 +8,13 @@ import { join } from 'path';
 import matter from 'gray-matter';
 import { TaskDefinition } from './types.js';
 import { loadConfig } from './config.js';
+import { getDefaultAgent } from './agents.js';
 
 export interface TaskMetadata {
   id: string;
   schedule: string;
   invocation: 'cli' | 'api';
+  agent: string;
   enabled: boolean;
 }
 
@@ -49,6 +51,7 @@ function taskToMarkdown(task: TaskDefinition): string {
 id: ${task.id}
 schedule: "${task.schedule}"
 invocation: ${task.invocation}
+agent: ${task.agent}
 notifications:
   toast: ${task.notifications.toast}
 enabled: ${task.enabled}
@@ -69,6 +72,7 @@ function parseTaskFile(filePath: string): TaskDefinition {
     id: parsed.data.id || 'unknown',
     schedule: parsed.data.schedule || '0 0 * * *',
     invocation: parsed.data.invocation || 'cli',
+    agent: parsed.data.agent || getDefaultAgent(),
     notifications: parsed.data.notifications || { toast: false },
     enabled: parsed.data.enabled !== false,
     instructions: parsed.content,
@@ -149,6 +153,7 @@ export function listTasks(): TaskMetadata[] {
           id: task.id,
           schedule: task.schedule,
           invocation: task.invocation,
+          agent: task.agent,
           enabled: task.enabled,
         });
       } catch (error) {

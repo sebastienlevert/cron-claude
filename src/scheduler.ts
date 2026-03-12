@@ -8,6 +8,8 @@ import { resolve, join } from 'path';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import cron from 'node-cron';
+import { AgentType } from './types.js';
+import { detectAgentPath, getAgentConfig, getDefaultAgent } from './agents.js';
 
 /**
  * Detect the path to node executable
@@ -24,35 +26,6 @@ function detectNodePath(): string {
   }
 }
 
-/**
- * Detect the path to claude/claude-code executable
- */
-function detectClaudeCodePath(): string | null {
-  try {
-    // Try multiple command names: claude-code first, then claude
-    const commands = process.platform === 'win32'
-      ? ['where claude-code', 'where claude']
-      : ['which claude-code', 'which claude'];
-
-    for (const command of commands) {
-      try {
-        const result = execSync(command, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-        // On Windows, 'where' can return multiple paths - take the first one
-        const paths = result.split('\n');
-        const path = paths[0].trim();
-        if (path) {
-          return path;
-        }
-      } catch {
-        // Try next command
-        continue;
-      }
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 interface ScheduleTrigger {
   type: 'daily' | 'weekly' | 'monthly' | 'once' | 'startup';
@@ -193,11 +166,14 @@ export function registerTask(
   taskId: string,
   taskFilePath: string,
   cronExpr: string,
-  projectRoot: string
+  projectRoot: string,
+  agent: AgentType = getDefaultAgent()
 ): void {
   try {
+    const agentConfig = getAgentConfig(agent);
     console.log(`Registering task: ${taskId}`);
     console.log(`Cron expression: ${cronExpr}`);
+    console.log(`Agent: ${agentConfig.displayName}`);
 
     const trigger = parseCronExpression(cronExpr);
     console.log(`Trigger type: ${trigger.type}, time: ${trigger.time}`);
@@ -205,22 +181,22 @@ export function registerTask(
     const executorPath = resolve(projectRoot, 'dist', 'executor.js');
     const absoluteTaskPath = resolve(taskFilePath);
 
-    // Detect claude-code path and pass it directly to executor
-    const claudeCodePath = detectClaudeCodePath();
+    // Detect agent CLI path
+    const agentPath = detectAgentPath(agent);
 
-    if (claudeCodePath) {
-      console.log(`Detected claude-code at: ${claudeCodePath}`);
+    if (agentPath) {
+      console.log(`Detected ${agentConfig.displayName} at: ${agentPath}`);
     } else {
-      console.log('Warning: claude-code not found in PATH - CLI tasks may fail');
+      console.log(`Warning: ${agentConfig.displayName} not found in PATH - CLI tasks may fail`);
     }
 
     // Detect node path for Task Scheduler (needs full path)
     const nodePath = detectNodePath();
     console.log(`Using node at: ${nodePath}`);
 
-    // Build arguments: executor.js taskPath [claudeCodePath]
-    const executorArgs = claudeCodePath
-      ? `"${executorPath}" "${absoluteTaskPath}" "${claudeCodePath}"`
+    // Build arguments: executor.js taskPath [agentPath]
+    const executorArgs = agentPath
+      ? `"${executorPath}" "${absoluteTaskPath}" "${agentPath}"`
       : `"${executorPath}" "${absoluteTaskPath}"`;
 
     // Build PowerShell registration script
