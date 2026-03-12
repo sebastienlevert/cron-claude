@@ -70,7 +70,7 @@ async function executeViaCLI(
         cliArgs = [...agentConfig.printArgs, tempFile];
       }
 
-      const fullCommand = `${agentCommand} ${cliArgs.map(a => `"${a}"`).join(' ')}`;
+      const fullCommand = `${agentCommand} ${cliArgs.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`;
       addLogStep(log, `Full CLI command`, fullCommand);
 
       const agentProcess = spawn(agentCommand, cliArgs, {
