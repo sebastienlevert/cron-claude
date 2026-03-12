@@ -41,11 +41,27 @@ export function loadConfig(): Config {
     const data = readFileSync(CONFIG_FILE, 'utf-8');
     const parsed = JSON.parse(data);
 
+    // Migrate legacy single tasksDir to tasksDirs array
+    // Always include the default ~/.cron-claude/tasks directory
+    let tasksDirs: string[];
+    if (Array.isArray(parsed.tasksDirs) && parsed.tasksDirs.length > 0) {
+      tasksDirs = parsed.tasksDirs;
+      if (!tasksDirs.includes(defaultTasksDir)) {
+        tasksDirs.unshift(defaultTasksDir);
+      }
+    } else if (parsed.tasksDir) {
+      tasksDirs = parsed.tasksDir === defaultTasksDir
+        ? [defaultTasksDir]
+        : [defaultTasksDir, parsed.tasksDir];
+    } else {
+      tasksDirs = [defaultTasksDir];
+    }
+
     // Merge with defaults for backward compatibility
     return {
       secretKey: parsed.secretKey || generateSecretKey(),
       version: parsed.version || '0.1.0',
-      tasksDir: parsed.tasksDir || defaultTasksDir,
+      tasksDirs,
       logsDir: parsed.logsDir || defaultLogsDir,
     };
   }
@@ -54,7 +70,7 @@ export function loadConfig(): Config {
   const config: Config = {
     secretKey: generateSecretKey(),
     version: '0.1.0',
-    tasksDir: defaultTasksDir,
+    tasksDirs: [defaultTasksDir],
     logsDir: defaultLogsDir,
   };
 

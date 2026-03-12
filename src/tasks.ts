@@ -19,28 +19,45 @@ export interface TaskMetadata {
 }
 
 /**
- * Get the tasks directory from config
+ * Get the primary tasks directory (first in list, used for creating new tasks)
  */
-function getTasksDir(): string {
+function getPrimaryTasksDir(): string {
   const config = loadConfig();
-  return config.tasksDir;
+  return config.tasksDirs[0];
 }
 
 /**
- * Ensure tasks directory exists
+ * Get all task directories from config
  */
-function ensureTasksDir(): void {
-  const tasksDir = getTasksDir();
-  if (!existsSync(tasksDir)) {
-    mkdirSync(tasksDir, { recursive: true });
+function getAllTasksDirs(): string[] {
+  const config = loadConfig();
+  return config.tasksDirs;
+}
+
+/**
+ * Ensure the primary tasks directory exists
+ */
+function ensurePrimaryTasksDir(): void {
+  const dir = getPrimaryTasksDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
 /**
- * Get file path for a task
+ * Get file path for a task, searching all directories.
+ * Returns the path in the first directory where the task exists,
+ * or a path in the primary directory if not found (for creation).
  */
 export function getTaskFilePath(taskId: string): string {
-  return join(getTasksDir(), `${taskId}.md`);
+  const filename = `${taskId}.md`;
+  for (const dir of getAllTasksDirs()) {
+    const candidate = join(dir, filename);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return join(getPrimaryTasksDir(), filename);
 }
 
 /**
@@ -80,13 +97,13 @@ function parseTaskFile(filePath: string): TaskDefinition {
 }
 
 /**
- * Create a new task
+ * Create a new task (always in the primary directory)
  */
 export function createTask(task: TaskDefinition): void {
-  ensureTasksDir();
-  const filePath = getTaskFilePath(task.id);
+  ensurePrimaryTasksDir();
+  const filePath = join(getPrimaryTasksDir(), `${task.id}.md`);
 
-  if (existsSync(filePath)) {
+  if (taskExists(task.id)) {
     throw new Error(`Task "${task.id}" already exists`);
   }
 
@@ -95,7 +112,7 @@ export function createTask(task: TaskDefinition): void {
 }
 
 /**
- * Get a task by ID
+ * Get a task by ID (searches all directories)
  */
 export function getTask(taskId: string): TaskDefinition | null {
   const filePath = getTaskFilePath(taskId);
@@ -108,7 +125,7 @@ export function getTask(taskId: string): TaskDefinition | null {
 }
 
 /**
- * Update an existing task
+ * Update an existing task (in whichever directory it lives)
  */
 export function updateTask(taskId: string, task: TaskDefinition): void {
   const filePath = getTaskFilePath(taskId);
@@ -122,7 +139,7 @@ export function updateTask(taskId: string, task: TaskDefinition): void {
 }
 
 /**
- * Delete a task by ID
+ * Delete a task by ID (from whichever directory it lives)
  */
 export function deleteTask(taskId: string): void {
   const filePath = getTaskFilePath(taskId);
@@ -135,42 +152,49 @@ export function deleteTask(taskId: string): void {
 }
 
 /**
- * List all tasks (metadata only)
+ * List all tasks across all directories (deduplicated by id)
  */
 export function listTasks(): TaskMetadata[] {
-  ensureTasksDir();
+  const seen = new Set<string>();
+  const tasks: TaskMetadata[] = [];
 
-  try {
-    const files = readdirSync(getTasksDir()).filter((f) => f.endsWith('.md'));
-    const tasks: TaskMetadata[] = [];
+  for (const dir of getAllTasksDirs()) {
+    if (!existsSync(dir)) continue;
 
-    for (const file of files) {
-      try {
-        const filePath = join(getTasksDir(), file);
-        const task = parseTaskFile(filePath);
+    try {
+      const files = readdirSync(dir).filter((f) => f.endsWith('.md'));
 
-        tasks.push({
-          id: task.id,
-          schedule: task.schedule,
-          invocation: task.invocation,
-          agent: task.agent,
-          enabled: task.enabled,
-        });
-      } catch (error) {
-        console.error(`Error parsing task file ${file}:`, error);
+      for (const file of files) {
+        try {
+          const filePath = join(dir, file);
+          const task = parseTaskFile(filePath);
+
+          if (!seen.has(task.id)) {
+            seen.add(task.id);
+            tasks.push({
+              id: task.id,
+              schedule: task.schedule,
+              invocation: task.invocation,
+              agent: task.agent,
+              enabled: task.enabled,
+            });
+          }
+        } catch (error) {
+          console.error(`Error parsing task file ${file}:`, error);
+        }
       }
+    } catch {
+      // Directory unreadable, skip
     }
-
-    return tasks;
-  } catch {
-    return [];
   }
+
+  return tasks;
 }
 
 /**
- * Check if a task exists
+ * Check if a task exists in any directory
  */
 export function taskExists(taskId: string): boolean {
-  const filePath = getTaskFilePath(taskId);
-  return existsSync(filePath);
+  const filename = `${taskId}.md`;
+  return getAllTasksDirs().some((dir) => existsSync(join(dir, filename)));
 }

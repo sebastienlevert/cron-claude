@@ -561,7 +561,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 Version: ${VERSION}
 Config directory: ${getConfigDir()}
-Tasks directory: ${config.tasksDir}
+Task directories:
+${config.tasksDirs.map((d, i) => `  ${i === 0 ? '(primary) ' : '          '}${d}`).join('\n')}
 Logs directory: ${config.logsDir}
 Total tasks: ${taskCount}
 Secret key: ${config.secretKey ? '✓ Configured' : '✗ Not configured'}

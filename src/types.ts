@@ -61,6 +61,6 @@ export interface ExecutionResult {
 export interface Config {
   secretKey: string;
   version: string;
-  tasksDir: string;
+  tasksDirs: string[];
   logsDir: string;
 }

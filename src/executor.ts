@@ -73,26 +73,37 @@ async function executeViaCLI(
         cliArgs = [...agentConfig.printArgs, tempFile];
       }
 
-      const fullCommand = `${agentCommand} ${cliArgs.map(a => a.includes(' ') ? `"${a}"` : a).join(' ')}`;
+      // Build a properly quoted command line for shell execution.
+      // On Windows, spawn with shell:true forces windowsVerbatimArguments=true,
+      // so arguments containing spaces are NOT auto-quoted. We must quote them ourselves.
+      const quotedArgs = cliArgs.map(a => a.includes(' ') ? `"${a}"` : a);
+      const fullCommand = `${agentCommand} ${quotedArgs.join(' ')}`;
       addLogStep(log, `Full CLI command`, fullCommand);
 
-      const agentProcess = spawn(agentCommand, cliArgs, {
-        stdio: 'inherit', // Use parent's stdio (makes window visible)
+      const agentProcess = spawn(fullCommand, [], {
+        stdio: 'pipe',
         shell: true,
-        detached: false
+        detached: false,
+        windowsHide: true
       });
 
-      // Set timeout (5 minutes default)
+      // Collect stdout/stderr for logging since we no longer inherit stdio
+      let stdoutData = '';
+      let stderrData = '';
+      agentProcess.stdout?.on('data', (chunk: Buffer) => { stdoutData += chunk.toString(); });
+      agentProcess.stderr?.on('data', (chunk: Buffer) => { stderrData += chunk.toString(); });
+
+      // Set timeout (30 minutes default)
       const timeout = setTimeout(() => {
-        addLogStep(log, 'Execution timeout', 'Task exceeded 5 minute limit');
+        addLogStep(log, 'Execution timeout', 'Task exceeded 30 minute limit');
         agentProcess.kill('SIGTERM');
         resolve({
           success: false,
-          output: '',
-          error: 'Execution timeout after 5 minutes',
+          output: stdoutData,
+          error: 'Execution timeout after 30 minutes',
           steps: log.steps
         });
-      }, 5 * 60 * 1000);
+      }, 30 * 60 * 1000);
 
       agentProcess.on('close', (code) => {
         clearTimeout(timeout);
@@ -105,19 +116,26 @@ async function executeViaCLI(
           addLogStep(log, 'Warning: Could not clean up temp file', undefined, String(e));
         }
 
+        if (stdoutData) {
+          addLogStep(log, 'Agent output', stdoutData.slice(0, 10000));
+        }
+        if (stderrData) {
+          addLogStep(log, 'Agent stderr', stderrData.slice(0, 5000));
+        }
+
         if (code === 0) {
           addLogStep(log, `${agentConfig.displayName} session completed successfully`, `Exit code: ${code}`);
           resolve({
             success: true,
-            output: `Interactive session completed via ${agentConfig.displayName}`,
+            output: stdoutData || `Session completed via ${agentConfig.displayName}`,
             steps: log.steps,
           });
         } else {
           addLogStep(log, `${agentConfig.displayName} session exited with error`, `Exit code: ${code}`);
           resolve({
             success: false,
-            output: '',
-            error: `${agentConfig.displayName} exited with code ${code}`,
+            output: stdoutData,
+            error: stderrData || `${agentConfig.displayName} exited with code ${code}`,
             steps: log.steps,
           });
         }

@@ -34,18 +34,53 @@ function detectNodePath(): string {
 
 
 interface ScheduleTrigger {
-  type: 'daily' | 'weekly' | 'monthly' | 'once' | 'startup';
-  time?: string; // HH:MM format
-  days?: string[]; // For weekly: MON, TUE, etc.
-  interval?: number; // For repeating tasks
+  type: 'daily' | 'weekly' | 'monthly';
+  time: string; // HH:MM format
+  daysOfWeek?: string[]; // For weekly: Sunday, Monday, etc.
+  daysOfMonth?: number[]; // For monthly: 1-31
+  monthNames?: string[]; // For monthly: January, February, etc.
+}
+
+const WEEKDAY_XML_NAMES: Record<string, string> = {
+  '0': 'Sunday', '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday',
+  '4': 'Thursday', '5': 'Friday', '6': 'Saturday', '7': 'Sunday',
+};
+
+const MONTH_XML_NAMES: Record<number, string> = {
+  1: 'January', 2: 'February', 3: 'March', 4: 'April',
+  5: 'May', 6: 'June', 7: 'July', 8: 'August',
+  9: 'September', 10: 'October', 11: 'November', 12: 'December',
+};
+
+/**
+ * Expand a cron field (e.g. "1,4,7,10" or "1-5" or "*") into individual numbers
+ */
+function expandCronField(field: string, min: number, max: number): number[] {
+  const values = new Set<number>();
+  for (const part of field.split(',')) {
+    const trimmed = part.trim();
+    if (trimmed === '*') {
+      for (let i = min; i <= max; i++) values.add(i);
+    } else if (trimmed.includes('/')) {
+      const [range, stepStr] = trimmed.split('/');
+      const step = parseInt(stepStr);
+      const start = range === '*' ? min : parseInt(range);
+      for (let i = start; i <= max; i += step) values.add(i);
+    } else if (trimmed.includes('-')) {
+      const [startStr, endStr] = trimmed.split('-');
+      for (let i = parseInt(startStr); i <= parseInt(endStr); i++) values.add(i);
+    } else {
+      values.add(parseInt(trimmed));
+    }
+  }
+  return [...values].sort((a, b) => a - b);
 }
 
 /**
  * Parse cron expression and convert to Task Scheduler trigger
- * Cron format: minute hour day month weekday
+ * Cron format: minute hour day-of-month month day-of-week
  */
 export function parseCronExpression(cronExpr: string): ScheduleTrigger {
-  // Validate cron expression first
   if (!cron.validate(cronExpr)) {
     throw new Error(`Invalid cron expression: ${cronExpr}`);
   }
@@ -57,44 +92,124 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
 
-  // Determine trigger type and details
-  const trigger: ScheduleTrigger = { type: 'daily' };
-
-  // If hour and minute are specified
+  // Parse time
+  let time = '00:00';
   if (hour !== '*' && minute !== '*') {
-    const hourNum = parseInt(hour);
-    const minuteNum = parseInt(minute);
-    trigger.time = `${hourNum.toString().padStart(2, '0')}:${minuteNum.toString().padStart(2, '0')}`;
-  } else {
-    // Default to midnight
-    trigger.time = '00:00';
+    const h = parseInt(hour).toString().padStart(2, '0');
+    const m = parseInt(minute).toString().padStart(2, '0');
+    time = `${h}:${m}`;
   }
 
-  // Check if it's a weekly schedule (specific day of week)
-  if (dayOfWeek !== '*') {
-    trigger.type = 'weekly';
-    const dayMap: Record<string, string> = {
-      '0': 'SUN',
-      '1': 'MON',
-      '2': 'TUE',
-      '3': 'WED',
-      '4': 'THU',
-      '5': 'FRI',
-      '6': 'SAT',
-      '7': 'SUN',
-    };
-    trigger.days = dayOfWeek.split(',').map((d) => dayMap[d.trim()] || 'MON');
-  }
-  // Check if it's a monthly schedule (specific day of month)
-  else if (dayOfMonth !== '*') {
-    trigger.type = 'monthly';
+  // Weekly: specific day(s) of week, any day-of-month, any month
+  if (dayOfWeek !== '*' && dayOfMonth === '*') {
+    const dayNums = expandCronField(dayOfWeek, 0, 7);
+    const dayNames = dayNums.map((d) => WEEKDAY_XML_NAMES[d.toString()] || 'Monday');
+    // Deduplicate (0 and 7 both map to Sunday)
+    const unique = [...new Set(dayNames)];
+    return { type: 'weekly', time, daysOfWeek: unique };
   }
 
-  return trigger;
+  // Monthly: specific day(s) of month
+  if (dayOfMonth !== '*') {
+    const days = expandCronField(dayOfMonth, 1, 31);
+    const months = month !== '*'
+      ? expandCronField(month, 1, 12).map((m) => MONTH_XML_NAMES[m])
+      : Object.values(MONTH_XML_NAMES);
+    return { type: 'monthly', time, daysOfMonth: days, monthNames: months };
+  }
+
+  // Default: daily
+  return { type: 'daily', time };
 }
 
 /**
- * Generate PowerShell command to create scheduled task
+ * Generate the trigger XML fragment for Task Scheduler
+ */
+function buildTriggerXml(trigger: ScheduleTrigger): string {
+  const startBoundary = `2026-01-01T${trigger.time}:00`;
+
+  if (trigger.type === 'weekly' && trigger.daysOfWeek) {
+    return `
+      <CalendarTrigger>
+        <StartBoundary>${startBoundary}</StartBoundary>
+        <Enabled>true</Enabled>
+        <ScheduleByWeek>
+          <WeeksInterval>1</WeeksInterval>
+          <DaysOfWeek>
+            ${trigger.daysOfWeek.map((d) => `<${d} />`).join('\n            ')}
+          </DaysOfWeek>
+        </ScheduleByWeek>
+      </CalendarTrigger>`;
+  }
+
+  if (trigger.type === 'monthly' && trigger.daysOfMonth && trigger.monthNames) {
+    return `
+      <CalendarTrigger>
+        <StartBoundary>${startBoundary}</StartBoundary>
+        <Enabled>true</Enabled>
+        <ScheduleByMonth>
+          <Months>
+            ${trigger.monthNames.map((m) => `<${m} />`).join('\n            ')}
+          </Months>
+          <DaysOfMonth>
+            ${trigger.daysOfMonth.map((d) => `<Day>${d}</Day>`).join('\n            ')}
+          </DaysOfMonth>
+        </ScheduleByMonth>
+      </CalendarTrigger>`;
+  }
+
+  // Daily (default)
+  return `
+      <CalendarTrigger>
+        <StartBoundary>${startBoundary}</StartBoundary>
+        <Enabled>true</Enabled>
+        <ScheduleByDay>
+          <DaysInterval>1</DaysInterval>
+        </ScheduleByDay>
+      </CalendarTrigger>`;
+}
+
+/**
+ * Generate full Task Scheduler XML for a task
+ */
+function buildFullTaskXml(
+  nodePath: string,
+  executorArgs: string,
+  trigger: ScheduleTrigger
+): string {
+  const triggerXml = buildTriggerXml(trigger);
+
+  return `<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>${triggerXml}
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>S4U</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Hidden>true</Hidden>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>${nodePath}</Command>
+      <Arguments>${executorArgs}</Arguments>
+    </Exec>
+  </Actions>
+</Task>`;
+}
+
+/**
+ * Generate PowerShell command to create scheduled task (via XML for proper trigger support)
  */
 export function generateTaskSchedulerCommand(
   taskId: string,
@@ -104,69 +219,26 @@ export function generateTaskSchedulerCommand(
 ): string {
   const executorPath = resolve(projectRoot, 'dist', 'executor.js');
   const absoluteTaskPath = resolve(taskFilePath);
+  const nodePath = detectNodePath();
+  const executorArgs = `"${executorPath}" "${absoluteTaskPath}"`;
 
-  // Build the action command
-  const actionCommand = `node "${executorPath}" "${absoluteTaskPath}"`;
+  const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
 
-  // Build trigger XML based on type
-  let triggerXml = '';
-
-  if (trigger.type === 'daily') {
-    triggerXml = `
-      <CalendarTrigger>
-        <StartBoundary>2026-01-01T${trigger.time}:00</StartBoundary>
-        <Enabled>true</Enabled>
-        <ScheduleByDay>
-          <DaysInterval>1</DaysInterval>
-        </ScheduleByDay>
-      </CalendarTrigger>`;
-  } else if (trigger.type === 'weekly' && trigger.days) {
-    const daysOfWeek = trigger.days.join('');
-    triggerXml = `
-      <CalendarTrigger>
-        <StartBoundary>2026-01-01T${trigger.time}:00</StartBoundary>
-        <Enabled>true</Enabled>
-        <ScheduleByWeek>
-          <WeeksInterval>1</WeeksInterval>
-          <DaysOfWeek>
-            ${trigger.days.map((day) => `<${day} />`).join('\n            ')}
-          </DaysOfWeek>
-        </ScheduleByWeek>
-      </CalendarTrigger>`;
-  } else if (trigger.type === 'monthly') {
-    triggerXml = `
-      <CalendarTrigger>
-        <StartBoundary>2026-01-01T${trigger.time}:00</StartBoundary>
-        <Enabled>true</Enabled>
-        <ScheduleByMonth>
-          <DaysOfMonth>
-            <Day>1</Day>
-          </DaysOfMonth>
-          <Months>
-            <January /><February /><March /><April /><May /><June />
-            <July /><August /><September /><October /><November /><December />
-          </Months>
-        </ScheduleByMonth>
-      </CalendarTrigger>`;
-  }
-
-  // Generate PowerShell script
+  // Use XML-based registration for accurate trigger types
   const psScript = `
 $taskName = "CronClaude_${taskId}"
-$action = New-ScheduledTaskAction -Execute "node" -Argument '"${executorPath}" "${absoluteTaskPath}"'
-$trigger = New-ScheduledTaskTrigger -Daily -At "${trigger.time || '00:00'}"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -LogonType Interactive
-
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
-Write-Host "Task registered: $taskName"
+$taskXml = @'
+${taskXml}
+'@
+Register-ScheduledTask -TaskName $taskName -Xml $taskXml -Force
+Write-Host "Task registered: $taskName (${trigger.type} at ${trigger.time})"
 `.trim();
 
   return psScript;
 }
 
 /**
- * Register a task in Windows Task Scheduler
+ * Register a task in Windows Task Scheduler (using XML for proper trigger support)
  */
 export async function registerTask(
   taskId: string,
@@ -205,25 +277,28 @@ export async function registerTask(
       ? `"${executorPath}" "${absoluteTaskPath}" "${agentPath}"`
       : `"${executorPath}" "${absoluteTaskPath}"`;
 
-    // Build PowerShell registration script
-    const psScript = `
-$ErrorActionPreference = 'Stop'
-$action = New-ScheduledTaskAction -Execute "${nodePath}" -Argument '${executorArgs}'
-$trigger = New-ScheduledTaskTrigger -Daily -At "${trigger.time || '00:00'}"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
-Register-ScheduledTask -TaskName "CronClaude_${taskId}" -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
-Write-Host "Task registered successfully"
-`.trim();
+    // Generate full task XML with correct trigger type
+    const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
 
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`;
+    // Write a PowerShell script with embedded XML to avoid encoding issues
+    const tempScript = join(tmpdir(), `cron-claude-register-${taskId}-${Date.now()}.ps1`);
+    const psScript = `$ErrorActionPreference = 'Stop'
+$taskXml = @"
+${taskXml}
+"@
+Register-ScheduledTask -TaskName "CronClaude_${taskId}" -Xml $taskXml -Force
+Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
+`;
+    writeFileSync(tempScript, psScript, 'utf-8');
+
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tempScript}"`;
 
     try {
       await execAsync(psCommand, {
         timeout: PS_TIMEOUT_MS,
         encoding: 'utf-8',
       });
-      console.error(`✓ Task "${taskId}" registered successfully`);
+      console.error(`✓ Task "${taskId}" registered successfully (${trigger.type} at ${trigger.time})`);
     } catch (normalError: any) {
       // Check if it's an access denied error
       const errorText = (normalError.message || '') + (normalError.stderr || '');
@@ -233,10 +308,7 @@ Write-Host "Task registered successfully"
         errorText.includes('PermissionDenied');
 
       if (isAccessDenied) {
-        // Write script to temp file and attempt elevation
         console.error('Administrator privileges required. Requesting elevation...');
-        const tempScript = join(tmpdir(), `cron-claude-register-${taskId}-${Date.now()}.ps1`);
-        writeFileSync(tempScript, psScript, 'utf-8');
 
         try {
           const elevatedCommand = `powershell.exe -NoProfile -NonInteractive -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
@@ -258,14 +330,14 @@ Write-Host "Task registered successfully"
           } else {
             throw new Error('Task registration was cancelled or failed');
           }
-        } finally {
-          try {
-            unlinkSync(tempScript);
-          } catch {}
+        } catch (elevatedError) {
+          throw elevatedError;
         }
       } else {
         throw normalError;
       }
+    } finally {
+      try { unlinkSync(tempScript); } catch {}
     }
   } catch (error) {
     console.error(`Failed to register task "${taskId}":`, error);
