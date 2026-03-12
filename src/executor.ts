@@ -62,7 +62,10 @@ async function executeViaCLI(
 
       // Build CLI arguments based on agent input mode
       let cliArgs: string[];
-      if (agentConfig.inputMode === 'inline') {
+      if (agentConfig.inputMode === 'file-reference') {
+        // Write full instructions to temp file, pass a short prompt referencing it
+        cliArgs = [...agentConfig.printArgs, `Read and execute the complete instructions from this file: ${tempFile}`];
+      } else if (agentConfig.inputMode === 'inline') {
         // Pass instructions text directly (e.g. copilot -p "instructions")
         cliArgs = [...agentConfig.printArgs, task.instructions];
       } else {

@@ -24,7 +24,7 @@ export const AGENT_REGISTRY: Record<AgentType, AgentConfig> = {
     displayName: 'GitHub Copilot CLI',
     executables: ['copilot'],
     printArgs: ['--yolo', '-p'],
-    inputMode: 'inline',
+    inputMode: 'file-reference',
     pathEnvVar: 'COPILOT_CLI_PATH',
     description: 'GitHub Copilot CLI',
   },
