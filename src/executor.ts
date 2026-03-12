@@ -70,6 +70,9 @@ async function executeViaCLI(
         cliArgs = [...agentConfig.printArgs, tempFile];
       }
 
+      const fullCommand = `${agentCommand} ${cliArgs.map(a => `"${a}"`).join(' ')}`;
+      addLogStep(log, `Full CLI command`, fullCommand);
+
       const agentProcess = spawn(agentCommand, cliArgs, {
         stdio: 'inherit', // Use parent's stdio (makes window visible)
         shell: true,
