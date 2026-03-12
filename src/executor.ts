@@ -230,8 +230,33 @@ async function executeViaAPI(
   }
 }
 
+// Patterns that indicate a transient/retryable error
+const RETRYABLE_ERROR_PATTERNS = [
+  /CAPIError:\s*4\d\d/i,             // CAPIError 400, 429, etc.
+  /unexpected\s+`tool_use_id`/i,     // tool_use_id mismatch
+  /rate\s*limit/i,                    // rate limiting
+  /ECONNRESET/i,                     // connection reset
+  /ETIMEDOUT/i,                      // connection timeout
+  /socket\s*hang\s*up/i,            // socket hang up
+  /502\s*Bad\s*Gateway/i,           // proxy errors
+  /503\s*Service\s*Unavailable/i,
+  /504\s*Gateway\s*Timeout/i,
+];
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 15_000; // 15 seconds between retries
+
+function isRetryableError(result: ExecutionResult): boolean {
+  const errorText = `${result.error || ''} ${result.output || ''}`;
+  return RETRYABLE_ERROR_PATTERNS.some(pattern => pattern.test(errorText));
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /**
- * Execute a task
+ * Execute a task with automatic retry for transient errors
  */
 export async function executeTask(taskFilePath: string, agentPath?: string): Promise<void> {
   // Parse task definition
@@ -248,30 +273,55 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
     return;
   }
 
-  // Execute based on invocation method
+  // Execute based on invocation method (with retry for transient errors)
   let result: ExecutionResult;
+  let attempt = 0;
 
-  if (task.invocation === 'cli') {
-    result = await executeViaCLI(task, log, agentPath);
-  } else if (task.invocation === 'api') {
-    result = await executeViaAPI(task, log);
-  } else {
-    addLogStep(log, 'Invalid invocation method', undefined, `Unknown method: ${task.invocation}`);
-    finalizeLog(log, false);
-    return;
+  while (true) {
+    attempt++;
+
+    if (task.invocation === 'cli') {
+      result = await executeViaCLI(task, log, agentPath);
+    } else if (task.invocation === 'api') {
+      result = await executeViaAPI(task, log);
+    } else {
+      addLogStep(log, 'Invalid invocation method', undefined, `Unknown method: ${task.invocation}`);
+      finalizeLog(log, false);
+      return;
+    }
+
+    // If successful or non-retryable, break out
+    if (result.success || attempt >= MAX_RETRIES || !isRetryableError(result)) {
+      break;
+    }
+
+    // Retryable error — log it and wait before retrying
+    addLogStep(
+      log,
+      `Transient error detected (attempt ${attempt}/${MAX_RETRIES}), retrying in ${RETRY_DELAY_MS / 1000}s`,
+      result.error || 'Unknown transient error'
+    );
+    await delay(RETRY_DELAY_MS);
+    addLogStep(log, `Retry attempt ${attempt + 1}/${MAX_RETRIES}`);
+  }
+
+  if (!result!.success && attempt > 1) {
+    addLogStep(log, `All ${attempt} attempts failed`);
+  } else if (result!.success && attempt > 1) {
+    addLogStep(log, `Succeeded on attempt ${attempt}/${MAX_RETRIES}`);
   }
 
   // Finalize log
-  finalizeLog(log, result.success);
+  finalizeLog(log, result!.success);
 
   // Send notification if enabled
   if (task.notifications.toast) {
     try {
       await sendNotification(
-        `Task ${task.id} ${result.success ? 'completed' : 'failed'}`,
-        result.success
-          ? `Task executed successfully via ${task.agent}`
-          : `Task failed: ${result.error || 'Unknown error'}`
+        `Task ${task.id} ${result!.success ? 'completed' : 'failed'}`,
+        result!.success
+          ? `Task executed successfully via ${task.agent}${attempt > 1 ? ` (attempt ${attempt})` : ''}`
+          : `Task failed after ${attempt} attempt(s): ${result!.error || 'Unknown error'}`
       );
     } catch (error) {
       console.error('Failed to send notification:', error);
