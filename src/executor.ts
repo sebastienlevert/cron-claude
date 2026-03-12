@@ -60,8 +60,15 @@ async function executeViaCLI(
 
       addLogStep(log, `Launching ${agentConfig.displayName} CLI`, `Using: ${agentCommand}`);
 
-      // Build CLI arguments from agent config
-      const cliArgs = [...agentConfig.printArgs, tempFile];
+      // Build CLI arguments based on agent input mode
+      let cliArgs: string[];
+      if (agentConfig.inputMode === 'inline') {
+        // Pass instructions text directly (e.g. copilot -p "instructions")
+        cliArgs = [...agentConfig.printArgs, task.instructions];
+      } else {
+        // Pass temp file path (e.g. claude --print --dangerously-skip-permissions tempFile)
+        cliArgs = [...agentConfig.printArgs, tempFile];
+      }
 
       const agentProcess = spawn(agentCommand, cliArgs, {
         stdio: 'inherit', // Use parent's stdio (makes window visible)

@@ -11,6 +11,8 @@ export interface AgentConfig {
   executables: string[];
   /** CLI arguments for non-interactive print mode */
   printArgs: string[];
+  /** How the agent receives task input: 'file' passes a temp file path, 'inline' passes instructions text directly */
+  inputMode: 'file' | 'inline';
   /** Environment variable to override the agent path */
   pathEnvVar: string;
   /** Description shown in help text */
