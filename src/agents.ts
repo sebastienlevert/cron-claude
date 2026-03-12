@@ -46,29 +46,47 @@ export function getAgentConfig(agent: AgentType): AgentConfig {
   return config;
 }
 
+// Cache detected agent paths to avoid repeated slow PATH lookups
+const agentPathCache = new Map<AgentType, string | null>();
+
+// Timeout for PATH detection commands (2 seconds)
+const DETECT_TIMEOUT_MS = 2_000;
+
 /**
- * Detect the path to an agent's executable
+ * Detect the path to an agent's executable.
+ * Results are cached to avoid repeated blocking PATH searches.
  */
 export function detectAgentPath(agent: AgentType): string | null {
+  // Return cached result if available
+  if (agentPathCache.has(agent)) {
+    return agentPathCache.get(agent) ?? null;
+  }
+
   const config = getAgentConfig(agent);
 
   // Check environment variable override first
   const envPath = process.env[config.pathEnvVar];
   if (envPath) {
+    agentPathCache.set(agent, envPath);
     return envPath;
   }
 
-  // Search for executables in PATH
+  // Search for executables in PATH with a timeout to prevent hangs
   for (const executable of config.executables) {
     try {
       const command = process.platform === 'win32'
         ? `where ${executable}`
         : `which ${executable}`;
 
-      const result = execSync(command, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      const result = execSync(command, {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        timeout: DETECT_TIMEOUT_MS,
+      }).trim();
       const paths = result.split('\n');
       const path = paths[0].trim();
       if (path) {
+        agentPathCache.set(agent, path);
         return path;
       }
     } catch {
@@ -76,6 +94,7 @@ export function detectAgentPath(agent: AgentType): string | null {
     }
   }
 
+  agentPathCache.set(agent, null);
   return null;
 }
 
