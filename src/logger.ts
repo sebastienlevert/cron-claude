@@ -92,7 +92,7 @@ export function saveLog(log: TaskLog): void {
 
   // Write log file
   writeFileSync(logPath, markdown, 'utf-8');
-  console.log(`✓ Logged execution ${log.executionId} to ${logPath}`);
+  console.error(`✓ Logged execution ${log.executionId} to ${logPath}`);
 }
 
 /**

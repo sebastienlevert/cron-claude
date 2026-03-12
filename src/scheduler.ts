@@ -3,13 +3,19 @@
  * Converts cron expressions to Task Scheduler triggers and manages scheduled tasks
  */
 
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
+import { promisify } from 'util';
 import { resolve, join } from 'path';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import cron from 'node-cron';
 import { AgentType } from './types.js';
 import { detectAgentPath, getAgentConfig, getDefaultAgent } from './agents.js';
+
+const execAsync = promisify(exec);
+
+// Timeout for PowerShell commands (15 seconds should be plenty for scheduler operations)
+const PS_TIMEOUT_MS = 15_000;
 
 /**
  * Detect the path to node executable
@@ -162,21 +168,21 @@ Write-Host "Task registered: $taskName"
 /**
  * Register a task in Windows Task Scheduler
  */
-export function registerTask(
+export async function registerTask(
   taskId: string,
   taskFilePath: string,
   cronExpr: string,
   projectRoot: string,
   agent: AgentType = getDefaultAgent()
-): void {
+): Promise<void> {
   try {
     const agentConfig = getAgentConfig(agent);
-    console.log(`Registering task: ${taskId}`);
-    console.log(`Cron expression: ${cronExpr}`);
-    console.log(`Agent: ${agentConfig.displayName}`);
+    console.error(`Registering task: ${taskId}`);
+    console.error(`Cron expression: ${cronExpr}`);
+    console.error(`Agent: ${agentConfig.displayName}`);
 
     const trigger = parseCronExpression(cronExpr);
-    console.log(`Trigger type: ${trigger.type}, time: ${trigger.time}`);
+    console.error(`Trigger type: ${trigger.type}, time: ${trigger.time}`);
 
     const executorPath = resolve(projectRoot, 'dist', 'executor.js');
     const absoluteTaskPath = resolve(taskFilePath);
@@ -185,14 +191,14 @@ export function registerTask(
     const agentPath = detectAgentPath(agent);
 
     if (agentPath) {
-      console.log(`Detected ${agentConfig.displayName} at: ${agentPath}`);
+      console.error(`Detected ${agentConfig.displayName} at: ${agentPath}`);
     } else {
-      console.log(`Warning: ${agentConfig.displayName} not found in PATH - CLI tasks may fail`);
+      console.error(`Warning: ${agentConfig.displayName} not found in PATH - CLI tasks may fail`);
     }
 
     // Detect node path for Task Scheduler (needs full path)
     const nodePath = detectNodePath();
-    console.log(`Using node at: ${nodePath}`);
+    console.error(`Using node at: ${nodePath}`);
 
     // Build arguments: executor.js taskPath [agentPath]
     const executorArgs = agentPath
@@ -210,17 +216,16 @@ Register-ScheduledTask -TaskName "CronClaude_${taskId}" -Action $action -Trigger
 Write-Host "Task registered successfully"
 `.trim();
 
-    // Try normal registration first
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`;
+
     try {
-      const psCommand = `powershell.exe -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`;
-      execSync(psCommand, {
-        stdio: 'pipe',
+      await execAsync(psCommand, {
+        timeout: PS_TIMEOUT_MS,
         encoding: 'utf-8',
       });
-      console.log(`✓ Task "${taskId}" registered successfully`);
-      return;
+      console.error(`✓ Task "${taskId}" registered successfully`);
     } catch (normalError: any) {
-      // Check if it's an access denied error (check both message and stderr)
+      // Check if it's an access denied error
       const errorText = (normalError.message || '') + (normalError.stderr || '');
       const isAccessDenied =
         errorText.includes('Access is denied') ||
@@ -228,31 +233,32 @@ Write-Host "Task registered successfully"
         errorText.includes('PermissionDenied');
 
       if (isAccessDenied) {
-        console.log('Administrator privileges required. Requesting elevation...');
-
-        // Write script to temporary file
+        // Write script to temp file and attempt elevation
+        console.error('Administrator privileges required. Requesting elevation...');
         const tempScript = join(tmpdir(), `cron-claude-register-${taskId}-${Date.now()}.ps1`);
         writeFileSync(tempScript, psScript, 'utf-8');
 
         try {
-          // Execute with elevation
-          const elevatedCommand = `powershell.exe -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
+          const elevatedCommand = `powershell.exe -NoProfile -NonInteractive -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
 
-          execSync(elevatedCommand, {
-            stdio: 'inherit',
+          await execAsync(elevatedCommand, {
+            timeout: PS_TIMEOUT_MS,
+            encoding: 'utf-8',
           });
 
           // Verify the task was created
-          const verifyCommand = `powershell.exe -Command "Get-ScheduledTask -TaskName 'CronClaude_${taskId}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
-          const result = execSync(verifyCommand, { encoding: 'utf-8' }).trim();
+          const verifyCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName 'CronClaude_${taskId}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
+          const { stdout } = await execAsync(verifyCommand, {
+            timeout: PS_TIMEOUT_MS,
+            encoding: 'utf-8',
+          });
 
-          if (result === `CronClaude_${taskId}`) {
-            console.log(`✓ Task "${taskId}" registered successfully with elevated privileges`);
+          if (stdout.trim() === `CronClaude_${taskId}`) {
+            console.error(`✓ Task "${taskId}" registered successfully with elevated privileges`);
           } else {
             throw new Error('Task registration was cancelled or failed');
           }
         } finally {
-          // Clean up temp file
           try {
             unlinkSync(tempScript);
           } catch {}
@@ -270,17 +276,17 @@ Write-Host "Task registered successfully"
 /**
  * Unregister a task from Windows Task Scheduler
  */
-export function unregisterTask(taskId: string): void {
+export async function unregisterTask(taskId: string): Promise<void> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `Unregister-ScheduledTask -TaskName "${taskName}" -Confirm:$false`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:\\$false"`;
 
-    execSync(psCommand, {
-      shell: 'powershell.exe',
-      stdio: 'inherit',
+    await execAsync(psCommand, {
+      timeout: PS_TIMEOUT_MS,
+      encoding: 'utf-8',
     });
 
-    console.log(`✓ Task "${taskId}" unregistered successfully`);
+    console.error(`✓ Task "${taskId}" unregistered successfully`);
   } catch (error) {
     console.error(`Failed to unregister task "${taskId}":`, error);
     throw error;
@@ -290,17 +296,17 @@ export function unregisterTask(taskId: string): void {
 /**
  * Enable a task in Windows Task Scheduler
  */
-export function enableTask(taskId: string): void {
+export async function enableTask(taskId: string): Promise<void> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `Enable-ScheduledTask -TaskName "${taskName}"`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Enable-ScheduledTask -TaskName '${taskName}'"`;
 
-    execSync(psCommand, {
-      shell: 'powershell.exe',
-      stdio: 'inherit',
+    await execAsync(psCommand, {
+      timeout: PS_TIMEOUT_MS,
+      encoding: 'utf-8',
     });
 
-    console.log(`✓ Task "${taskId}" enabled`);
+    console.error(`✓ Task "${taskId}" enabled`);
   } catch (error) {
     console.error(`Failed to enable task "${taskId}":`, error);
     throw error;
@@ -310,17 +316,17 @@ export function enableTask(taskId: string): void {
 /**
  * Disable a task in Windows Task Scheduler
  */
-export function disableTask(taskId: string): void {
+export async function disableTask(taskId: string): Promise<void> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `Disable-ScheduledTask -TaskName "${taskName}"`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Disable-ScheduledTask -TaskName '${taskName}'"`;
 
-    execSync(psCommand, {
-      shell: 'powershell.exe',
-      stdio: 'inherit',
+    await execAsync(psCommand, {
+      timeout: PS_TIMEOUT_MS,
+      encoding: 'utf-8',
     });
 
-    console.log(`✓ Task "${taskId}" disabled`);
+    console.error(`✓ Task "${taskId}" disabled`);
   } catch (error) {
     console.error(`Failed to disable task "${taskId}":`, error);
     throw error;
@@ -330,23 +336,22 @@ export function disableTask(taskId: string): void {
 /**
  * Get task status from Windows Task Scheduler
  */
-export function getTaskStatus(taskId: string): {
+export async function getTaskStatus(taskId: string): Promise<{
   exists: boolean;
   enabled?: boolean;
   lastRunTime?: string;
   nextRunTime?: string;
-} {
+}> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `Get-ScheduledTask -TaskName "${taskName}" | Select-Object State, @{Name="LastRunTime";Expression={(Get-ScheduledTaskInfo -TaskName "${taskName}").LastRunTime}}, @{Name="NextRunTime";Expression={(Get-ScheduledTaskInfo -TaskName "${taskName}").NextRunTime}} | ConvertTo-Json`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${taskName}' | Select-Object State, @{Name='LastRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').LastRunTime}}, @{Name='NextRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').NextRunTime}} | ConvertTo-Json"`;
 
-    const output = execSync(psCommand, {
-      shell: 'powershell.exe',
+    const { stdout } = await execAsync(psCommand, {
+      timeout: PS_TIMEOUT_MS,
       encoding: 'utf-8',
-      stdio: 'pipe',
     });
 
-    const data = JSON.parse(output);
+    const data = JSON.parse(stdout);
 
     return {
       exists: true,
