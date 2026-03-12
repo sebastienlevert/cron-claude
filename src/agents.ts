@@ -74,6 +74,8 @@ export function detectAgentPath(agent: AgentType): string | null {
   }
 
   // Search for executables in PATH with a timeout to prevent hangs
+  // We return the bare executable name (not the full resolved path) because
+  // full paths can cause issues with spawn/shell on Windows.
   for (const executable of config.executables) {
     try {
       const command = process.platform === 'win32'
@@ -85,11 +87,9 @@ export function detectAgentPath(agent: AgentType): string | null {
         stdio: 'pipe',
         timeout: DETECT_TIMEOUT_MS,
       }).trim();
-      const paths = result.split('\n');
-      const path = paths[0].trim();
-      if (path) {
-        agentPathCache.set(agent, path);
-        return path;
+      if (result) {
+        agentPathCache.set(agent, executable);
+        return executable;
       }
     } catch {
       continue;

@@ -317,7 +317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         const filePath = getTaskFilePath(task_id);
-        registerTask(task_id, filePath, task.schedule, PROJECT_ROOT, task.agent);
+        await registerTask(task_id, filePath, task.schedule, PROJECT_ROOT, task.agent);
 
         return {
           content: [
@@ -331,7 +331,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'cron_unregister_task': {
         const { task_id } = args as any;
-        unregisterTask(task_id);
+        await unregisterTask(task_id);
 
         return {
           content: [
@@ -361,7 +361,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         for (const task of tasks) {
           try {
-            const status = getTaskStatus(task.id);
+            const status = await getTaskStatus(task.id);
 
             output += `📋 ${task.id}\n`;
             output += `   Schedule: ${task.schedule}\n`;
@@ -400,7 +400,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'cron_enable_task': {
         const { task_id } = args as any;
-        enableTask(task_id);
+        await enableTask(task_id);
 
         return {
           content: [
@@ -414,7 +414,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'cron_disable_task': {
         const { task_id } = args as any;
-        disableTask(task_id);
+        await disableTask(task_id);
 
         return {
           content: [
@@ -612,7 +612,7 @@ Available tools:
           };
         }
 
-        const status = getTaskStatus(task_id);
+        const status = await getTaskStatus(task_id);
 
         // Reconstruct full definition as markdown
         const fullDefinition = `---

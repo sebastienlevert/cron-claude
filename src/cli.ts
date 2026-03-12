@@ -103,7 +103,7 @@ Write your instructions for Claude here.
 program
   .command('register <task-id>')
   .description('Register a task with Windows Task Scheduler')
-  .action((taskId) => {
+  .action(async (taskId) => {
     try {
       const filename = `${taskId}.md`;
       const filePath = join(TASKS_DIR, filename);
@@ -120,7 +120,7 @@ program
         process.exit(1);
       }
 
-      registerTask(taskId, filePath, task.schedule, PROJECT_ROOT);
+      await registerTask(taskId, filePath, task.schedule, PROJECT_ROOT);
     } catch (error) {
       console.error('Error registering task:', error);
       process.exit(1);
@@ -134,9 +134,9 @@ program
   .command('unregister <task-id>')
   .alias('delete')
   .description('Unregister a task from Windows Task Scheduler')
-  .action((taskId) => {
+  .action(async (taskId) => {
     try {
-      unregisterTask(taskId);
+      await unregisterTask(taskId);
     } catch (error) {
       console.error('Error unregistering task:', error);
       process.exit(1);
@@ -149,7 +149,7 @@ program
 program
   .command('list')
   .description('List all scheduled tasks')
-  .action(() => {
+  .action(async () => {
     const files = getTaskFiles();
 
     if (files.length === 0) {
@@ -159,10 +159,10 @@ program
 
     console.log('Scheduled Tasks:\n');
 
-    files.forEach((file) => {
+    for (const file of files) {
       try {
         const task = parseTask(file);
-        const status = getTaskStatus(task.id);
+        const status = await getTaskStatus(task.id);
 
         console.log(`📋 ${task.id}`);
         console.log(`   Schedule: ${task.schedule}`);
@@ -186,7 +186,7 @@ program
       } catch (error) {
         console.error(`Error parsing ${file}:`, error);
       }
-    });
+    }
   });
 
 /**
@@ -195,9 +195,9 @@ program
 program
   .command('enable <task-id>')
   .description('Enable a task in Windows Task Scheduler')
-  .action((taskId) => {
+  .action(async (taskId) => {
     try {
-      enableTask(taskId);
+      await enableTask(taskId);
     } catch (error) {
       console.error('Error enabling task:', error);
       process.exit(1);
@@ -210,9 +210,9 @@ program
 program
   .command('disable <task-id>')
   .description('Disable a task in Windows Task Scheduler')
-  .action((taskId) => {
+  .action(async (taskId) => {
     try {
-      disableTask(taskId);
+      await disableTask(taskId);
     } catch (error) {
       console.error('Error disabling task:', error);
       process.exit(1);
