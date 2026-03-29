@@ -4,6 +4,14 @@
  */
 
 import notifier from 'node-notifier';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/** Absolute path to the notification icon bundled with the package */
+const ICON_PATH = resolve(__dirname, '..', 'assets', 'icon.png');
 
 /**
  * Send a Windows toast notification
@@ -14,7 +22,7 @@ export async function sendNotification(title: string, message: string): Promise<
       {
         title,
         message,
-        icon: undefined, // Could add a custom icon later
+        icon: ICON_PATH,
         sound: true,
         wait: false,
         appID: 'cron-claude',
