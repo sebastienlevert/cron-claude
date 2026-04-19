@@ -1760,4 +1760,131 @@ describe('integration scenarios', () => {
     expect(report.taskMetrics[0].currentStreak).toEqual({ type: 'success', count: 1 });
     expect(report.taskMetrics[0].trend).toBe('insufficient_data');
   });
+
+  it('maxDurationSec tracks the maximum duration', () => {
+    const now = new Date();
+    const s1 = new Date(now.getTime() - 600_000);
+    const e1 = new Date(s1.getTime() + 60_000);
+    createLog('task-a', s1, 'success', { body: `Step at ${e1.toISOString()}` });
+    const s2 = new Date(now.getTime() - 300_000);
+    const e2 = new Date(s2.getTime() + 300_000);
+    createLog('task-a', s2, 'success', { body: `Step at ${e2.toISOString()}` });
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.taskMetrics[0].maxDurationSec).toBe(300);
+  });
+
+  it('medianDurationSec returns median for odd count', () => {
+    const now = new Date();
+    // 3 entries with durations: 60, 120, 300
+    for (const [offset, dur] of [[600, 60], [400, 120], [200, 300]] as const) {
+      const s = new Date(now.getTime() - offset * 1000);
+      const e = new Date(s.getTime() + dur * 1000);
+      createLog('task-a', s, 'success', { body: `Step at ${e.toISOString()}` });
+    }
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.taskMetrics[0].medianDurationSec).toBe(120);
+  });
+
+  it('medianDurationSec returns average of middle two for even count', () => {
+    const now = new Date();
+    // 4 entries with durations: 60, 100, 200, 300
+    for (const [offset, dur] of [[800, 60], [600, 100], [400, 200], [200, 300]] as const) {
+      const s = new Date(now.getTime() - offset * 1000);
+      const e = new Date(s.getTime() + dur * 1000);
+      createLog('task-a', s, 'success', { body: `Step at ${e.toISOString()}` });
+    }
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.taskMetrics[0].medianDurationSec).toBe(150); // (100 + 200) / 2
+  });
+
+  it('all failures produce 0 successRate summary', () => {
+    const now = new Date();
+    createLog('task-a', new Date(now.getTime() - 120_000), 'failure');
+    createLog('task-b', new Date(now.getTime() - 60_000), 'failure');
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.summary.successRate).toBe(0);
+    expect(report.summary.failures).toBe(2);
+  });
+
+  it('totalDurationSec is sum of all durations', () => {
+    const now = new Date();
+    const s1 = new Date(now.getTime() - 600_000);
+    const e1 = new Date(s1.getTime() + 100_000);
+    createLog('task-a', s1, 'success', { body: `Step at ${e1.toISOString()}` });
+    const s2 = new Date(now.getTime() - 300_000);
+    const e2 = new Date(s2.getTime() + 200_000);
+    createLog('task-b', s2, 'success', { body: `Step at ${e2.toISOString()}` });
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.summary.totalDurationSec).toBe(300); // 100 + 200
+  });
+
+  it('formatReportForCLI with declining task shows 📉', () => {
+    const report = analyticsModule.analyzeProductivity();
+    report.taskMetrics = [{
+      taskId: 'dec-task', runs: 10, successes: 5, failures: 5,
+      successRate: 50, avgDurationSec: 0, medianDurationSec: 0,
+      p95DurationSec: 0, maxDurationSec: 0, retryRuns: 0, retryRate: 0,
+      currentStreak: { type: 'failure', count: 3 }, trend: 'declining',
+    }];
+    const output = analyticsModule.formatReportForCLI(report);
+    expect(output).toContain('📉');
+  });
+
+  it('formatReportForMCP with improving task shows 📈', () => {
+    const report = analyticsModule.analyzeProductivity();
+    report.taskMetrics = [{
+      taskId: 'imp-task', runs: 10, successes: 10, failures: 0,
+      successRate: 100, avgDurationSec: 0, medianDurationSec: 0,
+      p95DurationSec: 0, maxDurationSec: 0, retryRuns: 0, retryRate: 0,
+      currentStreak: { type: 'success', count: 10 }, trend: 'improving',
+    }];
+    const output = analyticsModule.formatReportForMCP(report);
+    expect(output).toContain('📈');
+  });
+
+  it('no retry insight when retry rate is 0', () => {
+    const now = new Date();
+    for (let i = 0; i < 5; i++) {
+      createLog('task-a', new Date(now.getTime() - (20 - i) * 60000), 'success', {
+        body: 'Normal execution.',
+      });
+    }
+    const report = analyticsModule.analyzeProductivity();
+    const retryInsight = report.insights.find(i =>
+      i.message.includes('retry') || i.message.includes('Retry'));
+    expect(retryInsight).toBeUndefined();
+  });
+
+  it('no automation insight when runsPerDay < 1', () => {
+    const now = new Date();
+    createLog('task-a', new Date(now.getTime() - 60_000), 'success');
+    const report = analyticsModule.analyzeProductivity({ days: 30 });
+    const automationInsight = report.insights.find(i => i.message.includes('automation'));
+    expect(automationInsight).toBeUndefined();
+  });
+
+  it('peakHours counts across multiple tasks', () => {
+    const now = new Date();
+    const base = new Date(now);
+    base.setHours(10, 0, 0, 0);
+    if (base > now) base.setDate(base.getDate() - 1);
+    createLog('task-a', base, 'success');
+    createLog('task-b', new Date(base.getTime() + 1000), 'failure');
+    const report = analyticsModule.analyzeProductivity();
+    expect(report.peakHours[10]).toBe(2);
+  });
+
+  it('dailyActivity includes both success and failure on same day', () => {
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 86400_000);
+    const dayStr = dayAgo.toISOString().split('T')[0];
+    createLog('task-a', dayAgo, 'success');
+    createLog('task-b', new Date(dayAgo.getTime() + 60_000), 'failure');
+    const report = analyticsModule.analyzeProductivity({ days: 7 });
+    const day = report.dailyActivity.find(d => d.date === dayStr);
+    expect(day).toBeDefined();
+    expect(day!.runs).toBe(2);
+    expect(day!.successes).toBe(1);
+    expect(day!.failures).toBe(1);
+  });
 });
