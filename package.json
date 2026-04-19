@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/mcp-server.js",
   "bin": {
-    "cron-agents": "dist/mcp-server.js"
+    "cron-agents": "dist/mcp-server.js",
+    "cron-agents-cli": "dist/cli.js"
   },
   "files": [
     "dist",

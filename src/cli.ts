@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * CLI interface for cron-agents
- * Manage scheduled Claude tasks
+ * Manage scheduled coding agent tasks
  */
 
 import { Command } from 'commander';
-import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
@@ -13,166 +13,106 @@ import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } 
 import { executeTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
-import { execSync } from 'child_process';
+import { listTasks, getTask, getTaskFilePath, taskExists, createTask } from './tasks.js';
+import { getSupportedAgents, getAgentConfig, detectAgentPath, isValidAgent, getDefaultAgent } from './agents.js';
+import { getRun, getLatestRunForTask } from './runs.js';
+import { getConcurrencyStatus, tryAcquireSlot, waitForSlot } from './concurrency.js';
+import { createRun, updateRun, cleanupOldRuns } from './runs.js';
+import { TaskDefinition, AgentType } from './types.js';
 
-const program = new Command();
-
-// Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, '..');
-const TASKS_DIR = join(PROJECT_ROOT, 'tasks');
+const packageJson = JSON.parse(readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf-8'));
+const VERSION = packageJson.version || '0.0.0';
 
-// Ensure tasks directory exists
-if (!existsSync(TASKS_DIR)) {
-  mkdirSync(TASKS_DIR, { recursive: true });
-}
-
-/**
- * Get all task files
- */
-function getTaskFiles(): string[] {
-  try {
-    return readdirSync(TASKS_DIR).filter((f) => f.endsWith('.md'));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Parse task file
- */
-function parseTask(filename: string): any {
-  const filePath = join(TASKS_DIR, filename);
-  const content = readFileSync(filePath, 'utf-8');
-  const parsed = matter(content);
-  return { filePath, ...parsed.data, instructions: parsed.content };
-}
+const program = new Command();
 
 program
   .name('cron-agents')
-  .description('Manage scheduled Claude tasks (cron jobs for Claude)')
-  .version('0.1.0');
+  .description('Manage scheduled coding agent tasks')
+  .version(VERSION);
 
-/**
- * Create a new task
- */
+// ── create ──────────────────────────────────────────────────────────────────
 program
-  .command('create')
+  .command('create <task-id>')
   .description('Create a new scheduled task')
-  .option('-i, --interactive', 'Interactive mode (default)', true)
-  .action(async (options) => {
-    console.log('Creating new scheduled task...\n');
+  .option('-s, --schedule <cron>', 'Cron schedule expression', '0 9 * * *')
+  .option('-a, --agent <agent>', 'Coding agent to use (claude, copilot)', getDefaultAgent())
+  .option('-m, --method <method>', 'Invocation method (cli, api)', 'cli')
+  .option('--no-toast', 'Disable toast notifications')
+  .action(async (taskId: string, options) => {
+    if (taskExists(taskId)) {
+      console.error(`Error: Task "${taskId}" already exists`);
+      process.exit(1);
+    }
 
-    // TODO: Add interactive prompts
-    // For now, create a template
-    const taskId = `task-${Date.now()}`;
-    const template = `---
-id: ${taskId}
-schedule: "0 9 * * *"  # Every day at 9 AM
-invocation: cli  # or 'api'
-notifications:
-  toast: true
-enabled: true
----
+    if (!isValidAgent(options.agent)) {
+      console.error(`Error: Unknown agent "${options.agent}". Supported: ${getSupportedAgents().join(', ')}`);
+      process.exit(1);
+    }
 
-# Task Instructions
+    const task: TaskDefinition = {
+      id: taskId,
+      schedule: options.schedule,
+      invocation: options.method as 'cli' | 'api',
+      agent: options.agent as AgentType,
+      notifications: { toast: options.toast !== false },
+      enabled: true,
+      instructions: `# Task Instructions\n\nWrite your instructions for the coding agent here.\n`,
+    };
 
-Write your instructions for Claude here.
+    createTask(task);
+    const filePath = getTaskFilePath(taskId);
 
-## Example
-- Check email
-- Summarize important messages
-- Create a daily report
-`;
-
-    const filename = `${taskId}.md`;
-    const filePath = join(TASKS_DIR, filename);
-    writeFileSync(filePath, template, 'utf-8');
-
-    console.log(`✓ Task template created: ${filename}`);
+    console.log(`✓ Task "${taskId}" created`);
     console.log(`  Location: ${filePath}`);
-    console.log('\nNext steps:');
-    console.log('1. Edit the task file to add your instructions');
-    console.log('2. Run: cron-agents register ' + taskId);
+    console.log(`  Agent: ${options.agent}`);
+    console.log(`  Schedule: ${options.schedule}`);
+    console.log(`\nNext steps:`);
+    console.log(`  1. Edit the task file to add your instructions`);
+    console.log(`  2. Run: cron-agents register ${taskId}`);
   });
 
-/**
- * Register a task with Task Scheduler
- */
-program
-  .command('register <task-id>')
-  .description('Register a task with Windows Task Scheduler')
-  .action(async (taskId) => {
-    try {
-      const filename = `${taskId}.md`;
-      const filePath = join(TASKS_DIR, filename);
-
-      if (!existsSync(filePath)) {
-        console.error(`Error: Task file not found: ${filename}`);
-        process.exit(1);
-      }
-
-      const task = parseTask(filename);
-
-      if (!task.schedule) {
-        console.error('Error: Task must have a schedule defined');
-        process.exit(1);
-      }
-
-      await registerTask(taskId, filePath, task.schedule, PROJECT_ROOT);
-    } catch (error) {
-      console.error('Error registering task:', error);
-      process.exit(1);
-    }
-  });
-
-/**
- * Unregister a task
- */
-program
-  .command('unregister <task-id>')
-  .alias('delete')
-  .description('Unregister a task from Windows Task Scheduler')
-  .action(async (taskId) => {
-    try {
-      await unregisterTask(taskId);
-    } catch (error) {
-      console.error('Error unregistering task:', error);
-      process.exit(1);
-    }
-  });
-
-/**
- * List all tasks
- */
+// ── list ────────────────────────────────────────────────────────────────────
 program
   .command('list')
   .description('List all scheduled tasks')
   .action(async () => {
-    const files = getTaskFiles();
+    const tasks = listTasks();
 
-    if (files.length === 0) {
-      console.log('No tasks found. Create one with: cron-agents create');
+    if (tasks.length === 0) {
+      console.log('No tasks found. Create one with: cron-agents create <task-id>');
       return;
     }
 
     console.log('Scheduled Tasks:\n');
 
-    for (const file of files) {
+    for (const task of tasks) {
       try {
-        const task = parseTask(file);
         const status = await getTaskStatus(task.id);
 
         console.log(`📋 ${task.id}`);
         console.log(`   Schedule: ${task.schedule}`);
         console.log(`   Method: ${task.invocation}`);
-        console.log(`   Enabled: ${task.enabled ? '✓' : '✗'} (file)`);
+        console.log(`   Agent: ${task.agent}`);
+        console.log(`   Enabled (file): ${task.enabled ? '✓' : '✗'}`);
+
+        // Show active run status (queued vs running)
+        const latestRun = getLatestRunForTask(task.id);
+        if (latestRun && (latestRun.status === 'running' || latestRun.status === 'queued')) {
+          const elapsed = Math.round((Date.now() - new Date(latestRun.startedAt).getTime()) / 1000);
+          if (latestRun.status === 'running') {
+            console.log(`   Run: ⏳ Running (${elapsed}s, run_id=${latestRun.runId})`);
+          } else {
+            console.log(`   Run: 🕐 Queued (${elapsed}s, run_id=${latestRun.runId})`);
+          }
+        }
 
         if (status.exists) {
           console.log(`   Registered: ✓`);
           console.log(`   Status: ${status.enabled ? 'Enabled' : 'Disabled'}`);
-          if (status.lastRunTime) {
+          if (status.lastRunTime && status.lastRunTime !== '12/30/1899 12:00:00 AM') {
             console.log(`   Last run: ${status.lastRunTime}`);
           }
           if (status.nextRunTime) {
@@ -184,18 +124,75 @@ program
 
         console.log('');
       } catch (error) {
-        console.error(`Error parsing ${file}:`, error);
+        console.error(`Error processing task ${task.id}: ${error}`);
       }
     }
   });
 
-/**
- * Enable a task
- */
+// ── get ─────────────────────────────────────────────────────────────────────
+program
+  .command('get <task-id>')
+  .description('View a task definition and instructions')
+  .action(async (taskId: string) => {
+    const task = getTask(taskId);
+    if (!task) {
+      console.error(`Error: Task not found: ${taskId}`);
+      process.exit(1);
+    }
+
+    const status = await getTaskStatus(taskId);
+
+    console.log(`Task: ${taskId}\n`);
+    console.log(`Schedule: ${task.schedule}`);
+    console.log(`Method: ${task.invocation}`);
+    console.log(`Agent: ${task.agent}`);
+    console.log(`Enabled: ${task.enabled ? '✓' : '✗'}`);
+    console.log(`Notifications: ${task.notifications?.toast ? 'Toast' : 'None'}`);
+    console.log(`Registered: ${status.exists ? '✓' : '✗'}`);
+    console.log(`File: ${getTaskFilePath(taskId)}`);
+    console.log(`\n--- Instructions ---\n`);
+    console.log(task.instructions.trim());
+  });
+
+// ── register ────────────────────────────────────────────────────────────────
+program
+  .command('register <task-id>')
+  .description('Register a task with Windows Task Scheduler')
+  .action(async (taskId: string) => {
+    try {
+      const task = getTask(taskId);
+      if (!task) {
+        console.error(`Error: Task not found: ${taskId}`);
+        process.exit(1);
+      }
+
+      const filePath = getTaskFilePath(taskId);
+      await registerTask(taskId, filePath, task.schedule, PROJECT_ROOT, task.agent);
+    } catch (error) {
+      console.error('Error registering task:', error);
+      process.exit(1);
+    }
+  });
+
+// ── unregister ──────────────────────────────────────────────────────────────
+program
+  .command('unregister <task-id>')
+  .alias('delete')
+  .description('Unregister a task from Windows Task Scheduler')
+  .action(async (taskId: string) => {
+    try {
+      await unregisterTask(taskId);
+    } catch (error) {
+      console.error('Error unregistering task:', error);
+      process.exit(1);
+    }
+  });
+
+// ── enable ──────────────────────────────────────────────────────────────────
 program
   .command('enable <task-id>')
   .description('Enable a task in Windows Task Scheduler')
-  .action(async (taskId) => {
+  .action(async (taskId: string) => {
     try {
       await enableTask(taskId);
     } catch (error) {
@@ -204,13 +201,11 @@ program
     }
   });
 
-/**
- * Disable a task
- */
+// ── disable ─────────────────────────────────────────────────────────────────
 program
   .command('disable <task-id>')
   .description('Disable a task in Windows Task Scheduler')
-  .action(async (taskId) => {
+  .action(async (taskId: string) => {
     try {
       await disableTask(taskId);
     } catch (error) {
@@ -219,58 +214,178 @@ program
     }
   });
 
-/**
- * Manually run a task
- */
+// ── run ─────────────────────────────────────────────────────────────────────
 program
   .command('run <task-id>')
-  .description('Manually execute a task now')
-  .action(async (taskId) => {
+  .description('Execute a task (foreground by default, --background for async)')
+  .option('-b, --background', 'Run in background and return immediately')
+  .action(async (taskId: string, options) => {
     try {
-      const filename = `${taskId}.md`;
-      const filePath = join(TASKS_DIR, filename);
-
-      if (!existsSync(filePath)) {
-        console.error(`Error: Task file not found: ${filename}`);
+      const task = getTask(taskId);
+      if (!task) {
+        console.error(`Error: Task not found: ${taskId}`);
         process.exit(1);
       }
 
-      console.log(`Executing task: ${taskId}...\n`);
-      await executeTask(filePath);
-      console.log('\n✓ Task execution completed');
+      const filePath = getTaskFilePath(taskId);
+
+      // Detect agent path for CLI tasks
+      let agentCliPath: string | undefined;
+      if (task.invocation === 'cli') {
+        agentCliPath = detectAgentPath(task.agent) || undefined;
+      }
+
+      if (options.background) {
+        // Background mode: mirrors MCP cron_run_task behavior
+        const slotResult = await tryAcquireSlot();
+        const initialStatus = slotResult.acquired ? 'running' as const : 'queued' as const;
+        const run = createRun(taskId, initialStatus);
+
+        // Fire-and-forget execution
+        (async () => {
+          try {
+            if (initialStatus === 'queued') {
+              await waitForSlot(run.runId);
+            } else {
+              updateRun(run.runId, { status: 'running', pid: process.pid });
+            }
+
+            const result = await executeTask(filePath, agentCliPath, run.runId);
+            updateRun(run.runId, {
+              status: result.success ? 'success' : 'failure',
+              finishedAt: new Date().toISOString(),
+              logPath: result.logPath,
+              error: result.error,
+            });
+          } catch (err) {
+            updateRun(run.runId, {
+              status: 'failure',
+              finishedAt: new Date().toISOString(),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
+
+        cleanupOldRuns();
+
+        if (initialStatus === 'queued') {
+          console.log(`⏳ Task "${taskId}" queued (${slotResult.runningCount}/${slotResult.maxConcurrency} slots in use)`);
+        } else {
+          console.log(`✓ Task "${taskId}" started in background`);
+        }
+        console.log(`\nRun ID: ${run.runId}`);
+        console.log(`Check status: cron-agents run-status --run-id ${run.runId}`);
+      } else {
+        // Foreground mode: synchronous execution
+        console.log(`Executing task: ${taskId}...\n`);
+        const result = await executeTask(filePath, agentCliPath);
+
+        if (result.success) {
+          console.log(`\n✓ Task execution completed`);
+        } else {
+          console.error(`\n✗ Task execution failed: ${result.error || 'Unknown error'}`);
+          process.exit(1);
+        }
+        if (result.logPath) {
+          console.log(`Log: ${result.logPath}`);
+        }
+      }
     } catch (error) {
       console.error('Error executing task:', error);
       process.exit(1);
     }
   });
 
-/**
- * View task logs
- */
+// ── run-status ──────────────────────────────────────────────────────────────
+program
+  .command('run-status')
+  .description('Check the status of a task run')
+  .option('-r, --run-id <id>', 'Run ID to check')
+  .option('-t, --task-id <id>', 'Task ID (returns latest run)')
+  .action((options) => {
+    if (options.runId && options.taskId) {
+      console.error('Error: Provide either --run-id or --task-id, not both');
+      process.exit(1);
+    }
+    if (!options.runId && !options.taskId) {
+      console.error('Error: Provide either --run-id or --task-id');
+      process.exit(1);
+    }
+
+    const run = options.runId ? getRun(options.runId) : getLatestRunForTask(options.taskId);
+
+    if (!run) {
+      console.error(`No run found for ${options.runId ? `run_id="${options.runId}"` : `task_id="${options.taskId}"`}`);
+      process.exit(1);
+    }
+
+    const elapsed = run.finishedAt
+      ? `${Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
+      : `${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s (${run.status})`;
+
+    const statusIcon: Record<string, string> = {
+      queued: '🕐 queued',
+      running: '⏳ running',
+      success: '✅ success',
+      failure: '❌ failure',
+    };
+
+    console.log(`Run: ${run.runId}`);
+    console.log(`Task: ${run.taskId}`);
+    console.log(`Status: ${statusIcon[run.status] || run.status}`);
+    console.log(`Started: ${run.startedAt}`);
+    if (run.finishedAt) console.log(`Finished: ${run.finishedAt}`);
+    console.log(`Elapsed: ${elapsed}`);
+    if (run.logPath) console.log(`Log: ${run.logPath}`);
+    if (run.error) console.log(`Error: ${run.error}`);
+  });
+
+// ── logs ────────────────────────────────────────────────────────────────────
 program
   .command('logs <task-id>')
   .description('View execution logs for a task')
-  .action((taskId) => {
+  .option('-n, --count <number>', 'Number of recent logs to show', '10')
+  .action((taskId: string, options) => {
     try {
-      // Query memory skill for logs
-      const result = execSync(`odsp-memory recall --category=cron-task "${taskId}"`, {
-        encoding: 'utf-8',
-      });
+      const config = loadConfig();
+      const logFiles = readdirSync(config.logsDir)
+        .filter((f) => f.startsWith(`${taskId}_`) && f.endsWith('.md'))
+        .sort()
+        .reverse();
 
-      console.log(result);
+      if (logFiles.length === 0) {
+        console.log(`No logs found for task: ${taskId}`);
+        console.log(`Log directory: ${config.logsDir}`);
+        return;
+      }
+
+      const count = parseInt(options.count) || 10;
+
+      console.log(`Execution logs for task: ${taskId}\n`);
+      console.log(`Total executions: ${logFiles.length}\n`);
+      console.log(`Recent logs:`);
+
+      for (const file of logFiles.slice(0, count)) {
+        const filePath = join(config.logsDir, file);
+        const content = readFileSync(filePath, 'utf-8');
+        const parsed = matter(content);
+        console.log(`\n📄 ${file}`);
+        console.log(`   Status: ${parsed.data.status || 'unknown'}`);
+        console.log(`   Time: ${parsed.data.timestamp || 'unknown'}`);
+      }
+
+      console.log(`\nLog directory: ${config.logsDir}`);
     } catch (error) {
       console.error('Error fetching logs:', error);
       process.exit(1);
     }
   });
 
-/**
- * Verify a log signature
- */
+// ── verify ──────────────────────────────────────────────────────────────────
 program
   .command('verify <log-file>')
   .description('Verify the signature of a log file')
-  .action((logFile) => {
+  .action((logFile: string) => {
     try {
       const content = readFileSync(logFile, 'utf-8');
       const result = verifyLogFile(content);
@@ -293,24 +408,40 @@ program
     }
   });
 
-/**
- * Show system status
- */
+// ── status ──────────────────────────────────────────────────────────────────
 program
   .command('status')
   .description('Show cron-agents system status')
-  .action(() => {
+  .action(async () => {
     const config = loadConfig();
-    const taskCount = getTaskFiles().length;
+    const tasks = listTasks();
+    const concurrency = await getConcurrencyStatus();
 
     console.log('cron-agents System Status\n');
-    console.log(`Version: 0.1.0`);
+    console.log(`Version: ${VERSION}`);
     console.log(`Config directory: ${getConfigDir()}`);
-    console.log(`Tasks directory: ${TASKS_DIR}`);
-    console.log(`Total tasks: ${taskCount}`);
+    console.log(`Task directories:`);
+    config.tasksDirs.forEach((d, i) => {
+      console.log(`  ${i === 0 ? '(primary)' : '         '} ${d}`);
+    });
+    console.log(`Logs directory: ${config.logsDir}`);
+    console.log(`Total tasks: ${tasks.length}`);
     console.log(`Secret key: ${config.secretKey ? '✓ Configured' : '✗ Not configured'}`);
-    console.log(`\nNode version: ${process.version}`);
+    console.log('');
+    console.log('Concurrency:');
+    console.log(`  Max concurrent tasks: ${concurrency.maxConcurrency}`);
+    console.log(`  Currently running: ${concurrency.running} (actively executing)`);
+    console.log(`  Currently queued: ${concurrency.queued} (waiting for a slot)`);
+    console.log('');
+    console.log(`Node version: ${process.version}`);
     console.log(`Platform: ${process.platform}`);
+    console.log('');
+    console.log('Supported Agents:');
+    for (const agent of getSupportedAgents()) {
+      const ac = getAgentConfig(agent);
+      const detected = detectAgentPath(agent);
+      console.log(`  - ${ac.displayName} (${agent}): ${detected ? `✓ Found at ${detected}` : '✗ Not found'}`);
+    }
   });
 
 // Parse arguments and execute

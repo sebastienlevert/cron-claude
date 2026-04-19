@@ -388,6 +388,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             output += `   Agent: ${task.agent}\n`;
             output += `   Enabled (file): ${task.enabled ? '✓' : '✗'}\n`;
 
+            // Show active run status (queued vs running)
+            const latestRun = getLatestRunForTask(task.id);
+            if (latestRun && (latestRun.status === 'running' || latestRun.status === 'queued')) {
+              const elapsed = Math.round((Date.now() - new Date(latestRun.startedAt).getTime()) / 1000);
+              if (latestRun.status === 'running') {
+                output += `   Run: ⏳ Running (${elapsed}s, run_id=${latestRun.runId})\n`;
+              } else {
+                output += `   Run: 🕐 Queued (${elapsed}s, run_id=${latestRun.runId})\n`;
+              }
+            }
+
             if (status.exists) {
               output += `   Registered: ✓\n`;
               output += `   Status: ${status.enabled ? 'Enabled' : 'Disabled'}\n`;
@@ -626,8 +637,8 @@ Secret key: ${config.secretKey ? '✓ Configured' : '✗ Not configured'}
 
 Concurrency:
   Max concurrent tasks: ${concurrency.maxConcurrency}
-  Currently running: ${concurrency.running}
-  Currently queued: ${concurrency.queued}
+  Currently running: ${concurrency.running} (actively executing)
+  Currently queued: ${concurrency.queued} (waiting for a slot)
 
 Node version: ${process.version}
 Platform: ${process.platform}
