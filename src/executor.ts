@@ -376,7 +376,8 @@ export async function executeTask(
         `Task ${task.id} ${result!.success ? 'completed' : 'failed'}`,
         result!.success
           ? `Task executed successfully via ${task.agent}${attempt > 1 ? ` (attempt ${attempt})` : ''}`
-          : `Task failed after ${attempt} attempt(s): ${result!.error || 'Unknown error'}`
+          : `Task failed after ${attempt} attempt(s): ${result!.error || 'Unknown error'}`,
+        logPath,
       );
     } catch (error) {
       console.error('Failed to send notification:', error);

@@ -14,27 +14,36 @@ const __dirname = dirname(__filename);
 const ICON_PATH = resolve(__dirname, '..', 'assets', 'icon.png');
 
 /**
- * Send a Windows toast notification
+ * Send a Windows toast notification.
+ * If `openPath` is provided, clicking the notification opens that file in Obsidian.
  */
-export async function sendNotification(title: string, message: string): Promise<void> {
+export async function sendNotification(
+  title: string,
+  message: string,
+  openPath?: string,
+): Promise<void> {
+  const options: Record<string, unknown> = {
+    title,
+    message,
+    icon: ICON_PATH,
+    sound: true,
+    wait: false,
+    appID: 'cron-agents',
+  };
+
+  // Deep-link to the log file in Obsidian when clicked
+  if (openPath) {
+    options.open = `obsidian://open?path=${encodeURIComponent(openPath)}`;
+  }
+
   return new Promise((resolve, reject) => {
-    notifier.notify(
-      {
-        title,
-        message,
-        icon: ICON_PATH,
-        sound: true,
-        wait: false,
-        appID: 'cron-agents',
-      },
-      (err, response) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
+    notifier.notify(options, (err, response) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
       }
-    );
+    });
   });
 }
 
