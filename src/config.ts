@@ -38,8 +38,26 @@ export function loadConfig(): Config {
   const defaultLogsDir = join(CONFIG_DIR, 'logs');
 
   if (existsSync(CONFIG_FILE)) {
-    const data = readFileSync(CONFIG_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
+    let parsed: any;
+    try {
+      const data = readFileSync(CONFIG_FILE, 'utf-8');
+      parsed = JSON.parse(data);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Config is not a plain object');
+      }
+    } catch {
+      // Corrupt config file — regenerate
+      console.error('Warning: config.json is corrupt, regenerating...');
+      const config: Config = {
+        secretKey: generateSecretKey(),
+        version: '0.1.0',
+        tasksDirs: [defaultTasksDir],
+        logsDir: defaultLogsDir,
+        maxConcurrency: 2,
+      };
+      writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+      return config;
+    }
 
     // Migrate legacy single tasksDir to tasksDirs array
     // Always include the default ~/.cron-agents/tasks directory
@@ -57,14 +75,22 @@ export function loadConfig(): Config {
       tasksDirs = [defaultTasksDir];
     }
 
+    // Filter out empty strings from tasksDirs
+    tasksDirs = tasksDirs.filter(d => d && d.trim() !== '');
+    if (tasksDirs.length === 0) {
+      tasksDirs = [defaultTasksDir];
+    }
+
     // Merge with defaults for backward compatibility
     return {
       secretKey: parsed.secretKey || generateSecretKey(),
       version: parsed.version || '0.1.0',
       tasksDirs,
       logsDir: parsed.logsDir || defaultLogsDir,
-      maxConcurrency: typeof parsed.maxConcurrency === 'number' && parsed.maxConcurrency >= 1
-        ? parsed.maxConcurrency
+      maxConcurrency: typeof parsed.maxConcurrency === 'number'
+        && Number.isFinite(parsed.maxConcurrency)
+        && parsed.maxConcurrency >= 1
+        ? Math.floor(parsed.maxConcurrency)
         : 2,
     };
   }

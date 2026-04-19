@@ -146,12 +146,22 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
 
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
 
-  // Parse time
+  // Parse time — resolve step/range expressions to their first value
   let time = '00:00';
   if (hour !== '*' && minute !== '*') {
-    const h = parseInt(hour).toString().padStart(2, '0');
-    const m = parseInt(minute).toString().padStart(2, '0');
+    const hours = expandCronField(hour, 0, 23);
+    const minutes = expandCronField(minute, 0, 59);
+    const h = (hours[0] ?? 0).toString().padStart(2, '0');
+    const m = (minutes[0] ?? 0).toString().padStart(2, '0');
     time = `${h}:${m}`;
+  } else if (hour !== '*' && minute === '*') {
+    const hours = expandCronField(hour, 0, 23);
+    const h = (hours[0] ?? 0).toString().padStart(2, '0');
+    time = `${h}:00`;
+  } else if (hour === '*' && minute !== '*') {
+    const minutes = expandCronField(minute, 0, 59);
+    const m = (minutes[0] ?? 0).toString().padStart(2, '0');
+    time = `00:${m}`;
   }
 
   // Weekly: specific day(s) of week, any day-of-month, any month

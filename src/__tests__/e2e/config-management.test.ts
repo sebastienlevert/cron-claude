@@ -445,10 +445,13 @@ describe('Persistence and reload', () => {
     expect(raw).toBe(expected);
   });
 
-  it('corrupt config file → loadConfig throws (invalid JSON)', () => {
+  it('corrupt config file → loadConfig recovers gracefully', () => {
     mkdirSync(configDir(), { recursive: true });
     writeFileSync(configFile(), '{{not json!!', 'utf-8');
-    expect(() => configModule.loadConfig()).toThrow();
+    const cfg = configModule.loadConfig();
+    // Should regenerate a valid config instead of throwing
+    expect(cfg.secretKey).toBeTruthy();
+    expect(cfg.tasksDirs).toBeInstanceOf(Array);
   });
 
   it('config survives multiple load/update cycles', () => {

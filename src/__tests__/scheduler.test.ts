@@ -211,11 +211,11 @@ describe('parseCronExpression', () => {
       expect(result).toEqual({ type: 'daily', time: '03:05' });
     });
 
-    it('parses step-based hour "0 */2 * * *" as daily', () => {
+    it('parses step-based hour "0 */2 * * *" as daily with first step value', () => {
       const result = parseCronExpression('0 */2 * * *');
       expect(result.type).toBe('daily');
-      // Hour "*/2" is not '*', minute "0" is not '*', so parseInt("*/2") → NaN
-      expect(result.time).toBe('NaN:00');
+      // Hour "*/2" expands to [0,2,4,...22], first value is 0
+      expect(result.time).toBe('00:00');
     });
   });
 
@@ -337,14 +337,14 @@ describe('parseCronExpression', () => {
   });
 
   describe('Time parsing', () => {
-    it('defaults to 00:00 when hour is wildcard', () => {
+    it('uses 00 for hour when hour is wildcard, resolves minute', () => {
       const result = parseCronExpression('30 * * * *');
-      expect(result.time).toBe('00:00');
+      expect(result.time).toBe('00:30');
     });
 
-    it('defaults to 00:00 when minute is wildcard', () => {
+    it('uses 00 for minute when minute is wildcard, resolves hour', () => {
       const result = parseCronExpression('* 9 * * *');
-      expect(result.time).toBe('00:00');
+      expect(result.time).toBe('09:00');
     });
 
     it('defaults to 00:00 when both are wildcard', () => {

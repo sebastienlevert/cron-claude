@@ -58,10 +58,14 @@ export function updateRun(runId: string, updates: Partial<RunRecord>): RunRecord
   const filePath = runFilePath(runId);
   if (!existsSync(filePath)) return null;
 
-  const run: RunRecord = JSON.parse(readFileSync(filePath, 'utf-8'));
-  const updated = { ...run, ...updates };
-  writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
-  return updated;
+  try {
+    const run: RunRecord = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const updated = { ...run, ...updates };
+    writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+    return updated;
+  } catch {
+    return null; // Corrupt run file
+  }
 }
 
 /**
@@ -70,7 +74,11 @@ export function updateRun(runId: string, updates: Partial<RunRecord>): RunRecord
 export function getRun(runId: string): RunRecord | null {
   const filePath = runFilePath(runId);
   if (!existsSync(filePath)) return null;
-  return JSON.parse(readFileSync(filePath, 'utf-8'));
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null; // Corrupt run file
+  }
 }
 
 /**
@@ -178,7 +186,9 @@ export function cleanupOldRuns(): number {
     try {
       const run: RunRecord = JSON.parse(readFileSync(join(dir, file), 'utf-8'));
       if (run.status !== 'running' && run.status !== 'queued' && run.finishedAt) {
-        const age = now - new Date(run.finishedAt).getTime();
+        const finishedTime = new Date(run.finishedAt).getTime();
+        if (Number.isNaN(finishedTime)) continue; // Skip invalid dates
+        const age = now - finishedTime;
         if (age > COMPLETED_TTL_MS) {
           unlinkSync(join(dir, file));
           cleaned++;
