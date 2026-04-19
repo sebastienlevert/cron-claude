@@ -50,15 +50,15 @@ export function getRecurrenceLabel(cronExpr: string): string {
 
 /**
  * Build the Windows Task Scheduler task name with recurrence prefix.
- * Format: CronAgents_<Recurrence>_<taskId>
+ * Format: cron-agents-<recurrence>-<taskId>
  */
 export function buildScheduledTaskName(taskId: string, cronExpr?: string): string {
   if (cronExpr) {
-    const label = getRecurrenceLabel(cronExpr);
-    return `CronAgents_${label}_${taskId}`;
+    const label = getRecurrenceLabel(cronExpr).toLowerCase();
+    return `cron-agents-${label}-${taskId}`;
   }
   // Fallback when cron expr not available — search for any matching task
-  return `CronAgents_*_${taskId}`;
+  return `cron-agents-*-${taskId}`;
 }
 
 /**
@@ -67,7 +67,7 @@ export function buildScheduledTaskName(taskId: string, cronExpr?: string): strin
  */
 async function findScheduledTaskName(taskId: string): Promise<string | null> {
   try {
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask | Where-Object { $_.TaskName -match '^CronAgents_.*_${taskId}$' -or $_.TaskName -eq 'CronAgents_${taskId}' } | Select-Object -ExpandProperty TaskName -First 1"`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask | Where-Object { $_.TaskName -match '^cron-agents-.*-${taskId}$' -or $_.TaskName -match '^CronAgents_.*_${taskId}$' -or $_.TaskName -eq 'CronAgents_${taskId}' } | Select-Object -ExpandProperty TaskName -First 1"`;
     const { stdout } = await execAsync(psCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
     const name = stdout.trim();
     return name || null;
@@ -285,7 +285,7 @@ export function generateTaskSchedulerCommand(
 
   // Use XML-based registration for accurate trigger types
   const psScript = `
-$taskName = "CronAgents_${taskId}"
+$taskName = "cron-agents-${taskId}"
 $taskXml = @'
 ${taskXml}
 '@
