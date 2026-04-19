@@ -76,9 +76,9 @@ Status: ${log.status}
 }
 
 /**
- * Save log to local log directory
+ * Save log to local log directory. Returns the log file path.
  */
-export function saveLog(log: TaskLog): void {
+export function saveLog(log: TaskLog): string {
   const config = loadConfig();
   const markdown = formatTaskLog(log);
 
@@ -93,6 +93,8 @@ export function saveLog(log: TaskLog): void {
   // Write log file
   writeFileSync(logPath, markdown, 'utf-8');
   console.error(`✓ Logged execution ${log.executionId} to ${logPath}`);
+
+  return logPath;
 }
 
 /**
@@ -163,9 +165,9 @@ export function addLogStep(log: TaskLog, action: string, output?: string, error?
 }
 
 /**
- * Finalize and save log
+ * Finalize and save log. Returns the log file path.
  */
-export function finalizeLog(log: TaskLog, success: boolean): void {
+export function finalizeLog(log: TaskLog, success: boolean): string {
   log.status = success ? 'success' : 'failure';
-  saveLog(log);
+  return saveLog(log);
 }

@@ -7,7 +7,7 @@ import { spawn } from 'child_process';
 import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { pathToFileURL } from 'url';
 import matter from 'gray-matter';
-import { TaskDefinition, ExecutionResult, TaskLog } from './types.js';
+import { TaskDefinition, ExecutionResult, TaskLog, ExecuteTaskResult } from './types.js';
 import { createLog, addLogStep, finalizeLog } from './logger.js';
 import { sendNotification } from './notifier.js';
 import { getAgentConfig, detectAgentPath, getDefaultAgent } from './agents.js';
@@ -256,9 +256,10 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Execute a task with automatic retry for transient errors
+ * Execute a task with automatic retry for transient errors.
+ * Returns structured result with success status and log path.
  */
-export async function executeTask(taskFilePath: string, agentPath?: string): Promise<void> {
+export async function executeTask(taskFilePath: string, agentPath?: string): Promise<ExecuteTaskResult> {
   // Parse task definition
   const task = parseTaskDefinition(taskFilePath);
 
@@ -269,8 +270,8 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
   // Check if task is enabled
   if (!task.enabled) {
     addLogStep(log, 'Task skipped - disabled');
-    finalizeLog(log, false);
-    return;
+    const logPath = finalizeLog(log, false);
+    return { success: false, logPath, error: 'Task is disabled' };
   }
 
   // Execute based on invocation method (with retry for transient errors)
@@ -286,8 +287,8 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
       result = await executeViaAPI(task, log);
     } else {
       addLogStep(log, 'Invalid invocation method', undefined, `Unknown method: ${task.invocation}`);
-      finalizeLog(log, false);
-      return;
+      const logPath = finalizeLog(log, false);
+      return { success: false, logPath, error: `Unknown method: ${task.invocation}` };
     }
 
     // If successful or non-retryable, break out
@@ -312,7 +313,7 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
   }
 
   // Finalize log
-  finalizeLog(log, result!.success);
+  const logPath = finalizeLog(log, result!.success);
 
   // Send notification if enabled
   if (task.notifications.toast) {
@@ -327,6 +328,12 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
       console.error('Failed to send notification:', error);
     }
   }
+
+  return {
+    success: result!.success,
+    logPath,
+    error: result!.error,
+  };
 }
 
 /**

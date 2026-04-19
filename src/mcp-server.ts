@@ -28,6 +28,7 @@ import {
   getTaskFilePath,
 } from './tasks.js';
 import { getSupportedAgents, getAgentConfig, detectAgentPath, getDefaultAgent, isValidAgent } from './agents.js';
+import { createRun, updateRun, getRun, getLatestRunForTask, cleanupOldRuns } from './runs.js';
 
 // Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -213,6 +214,23 @@ const tools: Tool[] = [
         },
       },
       required: ['task_id'],
+    },
+  },
+  {
+    name: 'cron_get_run_status',
+    description: 'Check the status of an async task run. Provide either run_id or task_id (returns latest run for that task).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: {
+          type: 'string',
+          description: 'The run ID returned by cron_run_task',
+        },
+        task_id: {
+          type: 'string',
+          description: 'Task ID to get the latest run status for (alternative to run_id)',
+        },
+      },
     },
   },
 ];
@@ -449,14 +467,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           agentCliPath = detectAgentPath(task.agent) || undefined;
         }
 
-        // Execute task with agent path if found
-        await executeTask(filePath, agentCliPath);
+        // Create a persistent run record
+        const run = createRun(task_id);
+
+        // Fire-and-forget: execute in background, update run record on completion
+        executeTask(filePath, agentCliPath)
+          .then((result) => {
+            updateRun(run.runId, {
+              status: result.success ? 'success' : 'failure',
+              finishedAt: new Date().toISOString(),
+              logPath: result.logPath,
+              error: result.error,
+            });
+          })
+          .catch((err) => {
+            updateRun(run.runId, {
+              status: 'failure',
+              finishedAt: new Date().toISOString(),
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
+        // Clean up old completed runs opportunistically
+        cleanupOldRuns();
 
         return {
           content: [
             {
               type: 'text',
-              text: `✓ Task "${task_id}" executed successfully\n\nCheck logs with: cron_view_logs(task_id="${task_id}")`,
+              text: `✓ Task "${task_id}" started in background\n\nRun ID: ${run.runId}\n\nCheck status with: cron_get_run_status(run_id="${run.runId}")\nOr by task:       cron_get_run_status(task_id="${task_id}")`,
             },
           ],
         };
@@ -636,6 +675,59 @@ ${task.instructions}`;
         output += `Notifications: ${task.notifications?.toast ? 'Yes' : 'No'}\n`;
         output += `Registered: ${status.exists ? 'Yes' : 'No'}\n\n`;
         output += `Full Definition:\n\n${fullDefinition}`;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: output,
+            },
+          ],
+        };
+      }
+
+      case 'cron_get_run_status': {
+        const { run_id, task_id } = args as any;
+
+        let run;
+        if (run_id) {
+          run = getRun(run_id);
+        } else if (task_id) {
+          run = getLatestRunForTask(task_id);
+        } else {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: Provide either run_id or task_id',
+              },
+            ],
+          };
+        }
+
+        if (!run) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `No run found for ${run_id ? `run_id="${run_id}"` : `task_id="${task_id}"`}`,
+              },
+            ],
+          };
+        }
+
+        const elapsed = run.finishedAt
+          ? `${Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
+          : `${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s (running)`;
+
+        let output = `Run: ${run.runId}\n`;
+        output += `Task: ${run.taskId}\n`;
+        output += `Status: ${run.status === 'running' ? '⏳ running' : run.status === 'success' ? '✅ success' : '❌ failure'}\n`;
+        output += `Started: ${run.startedAt}\n`;
+        if (run.finishedAt) output += `Finished: ${run.finishedAt}\n`;
+        output += `Elapsed: ${elapsed}\n`;
+        if (run.logPath) output += `Log: ${run.logPath}\n`;
+        if (run.error) output += `Error: ${run.error}\n`;
 
         return {
           content: [

@@ -64,3 +64,19 @@ export interface Config {
   tasksDirs: string[];
   logsDir: string;
 }
+
+export interface RunRecord {
+  runId: string;
+  taskId: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: 'running' | 'success' | 'failure';
+  error?: string;
+  logPath?: string;
+}
+
+export interface ExecuteTaskResult {
+  success: boolean;
+  logPath?: string;
+  error?: string;
+}
