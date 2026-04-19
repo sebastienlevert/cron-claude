@@ -63,6 +63,9 @@ export function loadConfig(): Config {
       version: parsed.version || '0.1.0',
       tasksDirs,
       logsDir: parsed.logsDir || defaultLogsDir,
+      maxConcurrency: typeof parsed.maxConcurrency === 'number' && parsed.maxConcurrency >= 1
+        ? parsed.maxConcurrency
+        : 2,
     };
   }
 
@@ -72,6 +75,7 @@ export function loadConfig(): Config {
     version: '0.1.0',
     tasksDirs: [defaultTasksDir],
     logsDir: defaultLogsDir,
+    maxConcurrency: 2,
   };
 
   writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');

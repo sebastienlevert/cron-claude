@@ -63,6 +63,8 @@ export interface Config {
   version: string;
   tasksDirs: string[];
   logsDir: string;
+  /** Maximum number of concurrent task executions (default: 2) */
+  maxConcurrency: number;
 }
 
 export interface RunRecord {
@@ -70,7 +72,9 @@ export interface RunRecord {
   taskId: string;
   startedAt: string;
   finishedAt?: string;
-  status: 'running' | 'success' | 'failure';
+  status: 'queued' | 'running' | 'success' | 'failure';
+  /** PID of the executor process (for liveness checks) */
+  pid?: number;
   error?: string;
   logPath?: string;
 }

@@ -11,6 +11,8 @@ import { TaskDefinition, ExecutionResult, TaskLog, ExecuteTaskResult } from './t
 import { createLog, addLogStep, finalizeLog } from './logger.js';
 import { sendNotification } from './notifier.js';
 import { getAgentConfig, detectAgentPath, getDefaultAgent } from './agents.js';
+import { tryAcquireSlot, waitForSlot } from './concurrency.js';
+import { createRun, updateRun } from './runs.js';
 
 /**
  * Parse task definition from markdown file
@@ -258,8 +260,50 @@ function delay(ms: number): Promise<void> {
 /**
  * Execute a task with automatic retry for transient errors.
  * Returns structured result with success status and log path.
+ *
+ * Concurrency control: if a runId is provided, the caller has already created
+ * the run record and is managing concurrency externally (e.g. MCP fire-and-forget).
+ * If no runId is provided (CLI / Task Scheduler), this function handles concurrency
+ * internally by creating a run record and waiting for a slot if needed.
  */
-export async function executeTask(taskFilePath: string, agentPath?: string): Promise<ExecuteTaskResult> {
+export async function executeTask(
+  taskFilePath: string,
+  agentPath?: string,
+  runId?: string,
+): Promise<ExecuteTaskResult> {
+  // --- Concurrency gate (for direct callers like CLI / Task Scheduler) ---
+  let ownedRunId: string | undefined;
+  if (!runId) {
+    // Parse task ID from file for the run record
+    const tempContent = readFileSync(taskFilePath, 'utf-8');
+    const tempParsed = matter(tempContent);
+    const taskId = tempParsed.data.id || 'unknown';
+
+    const slotResult = await tryAcquireSlot();
+    if (slotResult.acquired) {
+      const run = createRun(taskId, 'running');
+      ownedRunId = run.runId;
+    } else {
+      // No slot — queue and wait
+      const run = createRun(taskId, 'queued');
+      ownedRunId = run.runId;
+      console.error(
+        `⏳ Concurrency limit reached (${slotResult.runningCount}/${slotResult.maxConcurrency}). ` +
+        `Task "${taskId}" queued as ${run.runId}. Waiting for slot...`
+      );
+      try {
+        await waitForSlot(run.runId);
+        console.error(`✓ Slot acquired for "${taskId}" (${run.runId})`);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+  }
+
+  const effectiveRunId = runId || ownedRunId;
   // Parse task definition
   const task = parseTaskDefinition(taskFilePath);
 
@@ -314,6 +358,16 @@ export async function executeTask(taskFilePath: string, agentPath?: string): Pro
 
   // Finalize log
   const logPath = finalizeLog(log, result!.success);
+
+  // Update owned run record (for direct callers — MCP manages its own)
+  if (ownedRunId) {
+    updateRun(ownedRunId, {
+      status: result!.success ? 'success' : 'failure',
+      finishedAt: new Date().toISOString(),
+      logPath,
+      error: result!.error,
+    });
+  }
 
   // Send notification if enabled
   if (task.notifications.toast) {

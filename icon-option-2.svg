@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Minimal/modern: bold gear-clock with flat design -->
+  <defs>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#d97706;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Gear shape using a path -->
+  <path d="
+    M56,4 h16 v12 a48,48 0 0 1 14.5,6 l8.5,-8.5 11.3,11.3 -8.5,8.5 a48,48 0 0 1 6,14.5 h12 v16 h-12 a48,48 0 0 1 -6,14.5 l8.5,8.5 -11.3,11.3 -8.5,-8.5 a48,48 0 0 1 -14.5,6 v12 h-16 v-12 a48,48 0 0 1 -14.5,-6 l-8.5,8.5 -11.3,-11.3 8.5,-8.5 a48,48 0 0 1 -6,-14.5 h-12 v-16 h12 a48,48 0 0 1 6,-14.5 l-8.5,-8.5 11.3,-11.3 8.5,8.5 a48,48 0 0 1 14.5,-6 z
+  " fill="url(#grad2)" />
+
+  <!-- Inner clock face -->
+  <circle cx="64" cy="64" r="36" fill="#fffbeb" />
+
+  <!-- Hour markers -->
+  <g stroke="#d97706" stroke-width="2.5" stroke-linecap="round">
+    <line x1="64" y1="32" x2="64" y2="38" />
+    <line x1="64" y1="90" x2="64" y2="96" />
+    <line x1="32" y1="64" x2="38" y2="64" />
+    <line x1="90" y1="64" x2="96" y2="64" />
+  </g>
+
+  <!-- Clock hands -->
+  <!-- Hour hand (pointing to ~9) -->
+  <line x1="64" y1="64" x2="44" y2="64" stroke="#92400e" stroke-width="4.5" stroke-linecap="round" />
+  <!-- Minute hand (pointing to ~12) -->
+  <line x1="64" y1="64" x2="64" y2="36" stroke="#92400e" stroke-width="3" stroke-linecap="round" />
+
+  <!-- Center dot -->
+  <circle cx="64" cy="64" r="4" fill="#92400e" />
+  <circle cx="64" cy="64" r="2" fill="#fffbeb" />
+
+  <!-- Small play triangle in bottom-right to hint at "execution" -->
+  <path d="M78,76 L92,84 L78,92 Z" fill="#d97706" opacity="0.9" />
+</svg>

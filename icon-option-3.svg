@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Dark/sleek: gear-clock with a modern dark palette -->
+  <defs>
+    <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="face3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#face3)" />
+
+  <!-- Gear teeth -->
+  <g fill="url(#grad3)">
+    <rect x="56" y="12" width="16" height="10" rx="3" />
+    <rect x="56" y="106" width="16" height="10" rx="3" />
+    <rect x="12" y="56" width="10" height="16" rx="3" />
+    <rect x="106" y="56" width="10" height="16" rx="3" />
+    <rect x="24" y="24" width="16" height="10" rx="3" transform="rotate(45 32 29)" />
+    <rect x="88" y="24" width="16" height="10" rx="3" transform="rotate(-45 96 29)" />
+    <rect x="24" y="94" width="16" height="10" rx="3" transform="rotate(-45 32 99)" />
+    <rect x="88" y="94" width="16" height="10" rx="3" transform="rotate(45 96 99)" />
+  </g>
+
+  <!-- Outer ring -->
+  <circle cx="64" cy="64" r="38" fill="none" stroke="url(#grad3)" stroke-width="3" />
+
+  <!-- Hour markers (glowing green) -->
+  <g stroke="#10b981" stroke-width="2" stroke-linecap="round">
+    <line x1="64" y1="30" x2="64" y2="37" />
+    <line x1="64" y1="91" x2="64" y2="98" />
+    <line x1="30" y1="64" x2="37" y2="64" />
+    <line x1="91" y1="64" x2="98" y2="64" />
+  </g>
+
+  <!-- Subtle hour dots -->
+  <g fill="#10b981" opacity="0.4">
+    <circle cx="81" cy="35" r="1.5" />
+    <circle cx="93" cy="47" r="1.5" />
+    <circle cx="93" cy="81" r="1.5" />
+    <circle cx="81" cy="93" r="1.5" />
+    <circle cx="47" cy="93" r="1.5" />
+    <circle cx="35" cy="81" r="1.5" />
+    <circle cx="35" cy="47" r="1.5" />
+    <circle cx="47" cy="35" r="1.5" />
+  </g>
+
+  <!-- Clock hands -->
+  <!-- Hour hand -->
+  <line x1="64" y1="64" x2="50" y2="44" stroke="#10b981" stroke-width="3.5" stroke-linecap="round" />
+  <!-- Minute hand -->
+  <line x1="64" y1="64" x2="82" y2="42" stroke="#34d399" stroke-width="2" stroke-linecap="round" />
+
+  <!-- Center dot -->
+  <circle cx="64" cy="64" r="3" fill="#10b981" />
+  <circle cx="64" cy="64" r="1.5" fill="#0f172a" />
+
+  <!-- Circular arrow (recurring) at bottom -->
+  <path d="M50,88 A18,18 0 1 1 78,88" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" opacity="0.7" />
+  <polygon points="78,84 78,92 84,88" fill="#10b981" opacity="0.7" />
+</svg>

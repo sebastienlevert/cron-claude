@@ -29,6 +29,7 @@ import {
 } from './tasks.js';
 import { getSupportedAgents, getAgentConfig, detectAgentPath, getDefaultAgent, isValidAgent } from './agents.js';
 import { createRun, updateRun, getRun, getLatestRunForTask, cleanupOldRuns } from './runs.js';
+import { tryAcquireSlot, waitForSlot, getConcurrencyStatus } from './concurrency.js';
 
 // Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -468,34 +469,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Create a persistent run record
-        const run = createRun(task_id);
+        const slotResult = await tryAcquireSlot();
+        const initialStatus = slotResult.acquired ? 'running' as const : 'queued' as const;
+        const run = createRun(task_id, initialStatus);
 
-        // Fire-and-forget: execute in background, update run record on completion
-        executeTask(filePath, agentCliPath)
-          .then((result) => {
+        // Fire-and-forget: handle concurrency and execution in background
+        (async () => {
+          try {
+            // If queued, wait for a slot before executing
+            if (initialStatus === 'queued') {
+              await waitForSlot(run.runId);
+            } else {
+              updateRun(run.runId, { status: 'running', pid: process.pid });
+            }
+
+            // Execute task, passing runId so executor skips its own concurrency gate
+            const result = await executeTask(filePath, agentCliPath, run.runId);
             updateRun(run.runId, {
               status: result.success ? 'success' : 'failure',
               finishedAt: new Date().toISOString(),
               logPath: result.logPath,
               error: result.error,
             });
-          })
-          .catch((err) => {
+          } catch (err) {
             updateRun(run.runId, {
               status: 'failure',
               finishedAt: new Date().toISOString(),
               error: err instanceof Error ? err.message : String(err),
             });
-          });
+          }
+        })();
 
         // Clean up old completed runs opportunistically
         cleanupOldRuns();
+
+        const statusEmoji = initialStatus === 'queued' ? '⏳' : '✓';
+        const statusMsg = initialStatus === 'queued'
+          ? `Task "${task_id}" queued (${slotResult.runningCount}/${slotResult.maxConcurrency} slots in use). Will start when a slot opens.`
+          : `Task "${task_id}" started in background`;
 
         return {
           content: [
             {
               type: 'text',
-              text: `✓ Task "${task_id}" started in background\n\nRun ID: ${run.runId}\n\nCheck status with: cron_get_run_status(run_id="${run.runId}")\nOr by task:       cron_get_run_status(task_id="${task_id}")`,
+              text: `${statusEmoji} ${statusMsg}\n\nRun ID: ${run.runId}\n\nCheck status with: cron_get_run_status(run_id="${run.runId}")\nOr by task:       cron_get_run_status(task_id="${task_id}")`,
             },
           ],
         };
@@ -595,6 +612,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const config = loadConfig();
         const tasks = listTasks();
         const taskCount = tasks.length;
+        const concurrency = await getConcurrencyStatus();
 
         const output = `Cron-Claude System Status
 
@@ -605,6 +623,11 @@ ${config.tasksDirs.map((d, i) => `  ${i === 0 ? '(primary) ' : '          '}${d}
 Logs directory: ${config.logsDir}
 Total tasks: ${taskCount}
 Secret key: ${config.secretKey ? '✓ Configured' : '✗ Not configured'}
+
+Concurrency:
+  Max concurrent tasks: ${concurrency.maxConcurrency}
+  Currently running: ${concurrency.running}
+  Currently queued: ${concurrency.queued}
 
 Node version: ${process.version}
 Platform: ${process.platform}
@@ -620,7 +643,7 @@ Available tools:
 - cron_create_task - Create new scheduled tasks (supports agent selection)
 - cron_register_task - Register with Task Scheduler
 - cron_list_tasks - View all tasks
-- cron_run_task - Execute immediately
+- cron_run_task - Execute immediately (with concurrency control)
 - cron_enable/disable_task - Toggle tasks
 - cron_view_logs - View execution history
 - cron_verify_log - Verify log signatures
@@ -718,11 +741,18 @@ ${task.instructions}`;
 
         const elapsed = run.finishedAt
           ? `${Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
-          : `${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s (running)`;
+          : `${Math.round((Date.now() - new Date(run.startedAt).getTime()) / 1000)}s (${run.status})`;
+
+        const statusIcon = {
+          queued: '🕐 queued',
+          running: '⏳ running',
+          success: '✅ success',
+          failure: '❌ failure',
+        }[run.status] || run.status;
 
         let output = `Run: ${run.runId}\n`;
         output += `Task: ${run.taskId}\n`;
-        output += `Status: ${run.status === 'running' ? '⏳ running' : run.status === 'success' ? '✅ success' : '❌ failure'}\n`;
+        output += `Status: ${statusIcon}\n`;
         output += `Started: ${run.startedAt}\n`;
         if (run.finishedAt) output += `Finished: ${run.finishedAt}\n`;
         output += `Elapsed: ${elapsed}\n`;
