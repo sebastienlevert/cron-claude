@@ -23,6 +23,7 @@ import { validateDAG, getDAGDisplay, getDependents, areDependenciesMet } from '.
 import { getBuiltinVariables } from './template.js';
 import { runWatch } from './watch.js';
 import { startDashboard } from './dashboard.js';
+import { analyzeProductivity, formatReportForCLI } from './analytics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -600,6 +601,24 @@ program
     console.log('\nTask-level variables can be defined in frontmatter:');
     console.log('  variables:');
     console.log('    myVar: "value"');
+  });
+
+// ── analytics ───────────────────────────────────────────────────────────────
+program
+  .command('analytics')
+  .description('Analyze task execution patterns and productivity')
+  .option('-d, --days <n>', 'Number of days to analyze', '30')
+  .option('-t, --task <id>', 'Analyze a specific task only')
+  .option('--json', 'Output raw JSON instead of formatted report')
+  .action((options) => {
+    const days = parseInt(options.days) || 30;
+    const report = analyzeProductivity({ days, taskId: options.task });
+
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatReportForCLI(report));
+    }
   });
 
 // Parse arguments and execute

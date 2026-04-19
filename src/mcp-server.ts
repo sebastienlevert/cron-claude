@@ -32,6 +32,7 @@ import { createRun, updateRun, getRun, getLatestRunForTask, cleanupOldRuns } fro
 import { tryAcquireSlot, waitForSlot, getConcurrencyStatus } from './concurrency.js';
 import { validateDAG, getDAGDisplay, areDependenciesMet } from './chains.js';
 import { getBuiltinVariables } from './template.js';
+import { analyzeProductivity, formatReportForMCP } from './analytics.js';
 
 // Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -275,6 +276,24 @@ const tools: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {},
+    },
+  },
+  {
+    name: 'cron_analytics',
+    description: 'Analyze task execution patterns, productivity metrics, and health. Returns success rates, trends, peak hours, and actionable recommendations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'Number of days to analyze (default: 30)',
+          default: 30,
+        },
+        task_id: {
+          type: 'string',
+          description: 'Optional: analyze a specific task only',
+        },
+      },
     },
   },
 ];
@@ -883,6 +902,17 @@ ${task.instructions}`;
 
         return {
           content: [{ type: 'text', text: output }],
+        };
+      }
+
+      case 'cron_analytics': {
+        const days = typeof args?.days === 'number' ? args.days : 30;
+        const taskId = typeof args?.task_id === 'string' ? args.task_id : undefined;
+        const report = analyzeProductivity({ days, taskId });
+        const text = formatReportForMCP(report);
+
+        return {
+          content: [{ type: 'text', text }],
         };
       }
 

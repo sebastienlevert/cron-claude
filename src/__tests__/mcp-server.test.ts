@@ -291,9 +291,9 @@ describe('Tool definitions', () => {
     expect(capturedHandlers.has('tools/call')).toBe(true);
   });
 
-  it('should expose exactly 14 tools', async () => {
+  it('should expose exactly 15 tools', async () => {
     const result = await getListToolsHandler()({});
-    expect(result.tools).toHaveLength(14);
+    expect(result.tools).toHaveLength(15);
   });
 
   it('every tool has a name, description, and inputSchema', async () => {
@@ -321,6 +321,7 @@ describe('Tool definitions', () => {
     expect(names).toContain('cron_status');
     expect(names).toContain('cron_get_task');
     expect(names).toContain('cron_get_run_status');
+    expect(names).toContain('cron_analytics');
   });
 
   it('cron_create_task requires task_id and instructions', async () => {
