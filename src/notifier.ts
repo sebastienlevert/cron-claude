@@ -25,7 +25,7 @@ export async function sendNotification(title: string, message: string): Promise<
         icon: ICON_PATH,
         sound: true,
         wait: false,
-        appID: 'cron-claude',
+        appID: 'cron-agents',
       },
       (err, response) => {
         if (err) {

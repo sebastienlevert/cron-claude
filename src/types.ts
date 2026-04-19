@@ -1,5 +1,5 @@
 /**
- * Core types for cron-claude system
+ * Core types for cron-agents system
  */
 
 export type AgentType = 'claude' | 'copilot';

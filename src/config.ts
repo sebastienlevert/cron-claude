@@ -1,5 +1,5 @@
 /**
- * Configuration management for cron-claude
+ * Configuration management for cron-agents
  * Handles secret key generation and storage
  */
 
@@ -9,7 +9,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { Config } from './types.js';
 
-const CONFIG_DIR = join(homedir(), '.cron-claude');
+const CONFIG_DIR = join(homedir(), '.cron-agents');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 /**
@@ -42,7 +42,7 @@ export function loadConfig(): Config {
     const parsed = JSON.parse(data);
 
     // Migrate legacy single tasksDir to tasksDirs array
-    // Always include the default ~/.cron-claude/tasks directory
+    // Always include the default ~/.cron-agents/tasks directory
     let tasksDirs: string[];
     if (Array.isArray(parsed.tasksDirs) && parsed.tasksDirs.length > 0) {
       tasksDirs = parsed.tasksDirs;

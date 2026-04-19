@@ -1,6 +1,6 @@
 # cron-status
 
-Check the status of the Cron-Claude MCP server and view system configuration.
+Check the status of the cron-agents MCP server and view system configuration.
 
 ## Usage
 

@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/swap-mcp-config.js dev    → points to local dist/mcp-server.js
- *   node scripts/swap-mcp-config.js publish → points to npx @patrick-rodgers/cron-claude@latest
+ *   node scripts/swap-mcp-config.js publish → points to npx @sebastienlevert/cron-agents@latest
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -17,7 +17,7 @@ const mcpPath = join(__dirname, '..', '.mcp.json');
 const configs = {
   dev: {
     mcpServers: {
-      'cron-claude': {
+      'cron-agents': {
         command: 'node',
         args: ['dist/mcp-server.js'],
       },
@@ -25,9 +25,9 @@ const configs = {
   },
   publish: {
     mcpServers: {
-      'cron-claude': {
+      'cron-agents': {
         command: 'npx',
-        args: ['@patrick-rodgers/cron-claude@latest'],
+        args: ['@sebastienlevert/cron-agents@latest'],
       },
     },
   },

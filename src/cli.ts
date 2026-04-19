@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI interface for cron-claude
+ * CLI interface for cron-agents
  * Manage scheduled Claude tasks
  */
 
@@ -50,7 +50,7 @@ function parseTask(filename: string): any {
 }
 
 program
-  .name('cron-claude')
+  .name('cron-agents')
   .description('Manage scheduled Claude tasks (cron jobs for Claude)')
   .version('0.1.0');
 
@@ -94,7 +94,7 @@ Write your instructions for Claude here.
     console.log(`  Location: ${filePath}`);
     console.log('\nNext steps:');
     console.log('1. Edit the task file to add your instructions');
-    console.log('2. Run: cron-claude register ' + taskId);
+    console.log('2. Run: cron-agents register ' + taskId);
   });
 
 /**
@@ -153,7 +153,7 @@ program
     const files = getTaskFiles();
 
     if (files.length === 0) {
-      console.log('No tasks found. Create one with: cron-claude create');
+      console.log('No tasks found. Create one with: cron-agents create');
       return;
     }
 
@@ -179,7 +179,7 @@ program
             console.log(`   Next run: ${status.nextRunTime}`);
           }
         } else {
-          console.log(`   Registered: ✗ (run 'cron-claude register ${task.id}')`);
+          console.log(`   Registered: ✗ (run 'cron-agents register ${task.id}')`);
         }
 
         console.log('');
@@ -298,12 +298,12 @@ program
  */
 program
   .command('status')
-  .description('Show cron-claude system status')
+  .description('Show cron-agents system status')
   .action(() => {
     const config = loadConfig();
     const taskCount = getTaskFiles().length;
 
-    console.log('Cron-Claude System Status\n');
+    console.log('cron-agents System Status\n');
     console.log(`Version: 0.1.0`);
     console.log(`Config directory: ${getConfigDir()}`);
     console.log(`Tasks directory: ${TASKS_DIR}`);

@@ -1,6 +1,6 @@
-# Cron-Claude
+# cron-agents
 
-[![npm](https://img.shields.io/npm/v/@patrick-rodgers/cron-claude)](https://www.npmjs.com/package/@patrick-rodgers/cron-claude)
+[![npm](https://img.shields.io/npm/v/@sebastienlevert/cron-agents)](https://www.npmjs.com/package/@sebastienlevert/cron-agents)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Automated task scheduling for AI coding agents via Windows Task Scheduler.** This MCP server enables Claude, GitHub Copilot CLI, and other coding agents to execute tasks automatically on recurring schedules—perfect for daily reports, backups, monitoring, and more.
@@ -12,7 +12,7 @@
 **One command to install:**
 
 ```bash
-claude plugin add @patrick-rodgers/cron-claude
+claude plugin add @sebastienlevert/cron-agents
 ```
 
 **That's it!** The plugin installs automatically with:
@@ -28,9 +28,9 @@ claude plugin add @patrick-rodgers/cron-claude
 ```json
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "npx",
-      "args": ["@patrick-rodgers/cron-claude"]
+      "args": ["@sebastienlevert/cron-agents"]
     }
   }
 }
@@ -90,10 +90,10 @@ Format as a concise report and save to memory.
 
 ### Storage
 
-**Default locations** (configurable via `~/.cron-claude/config.json`):
+**Default locations** (configurable via `~/.cron-agents/config.json`):
 
 ```
-~/.cron-claude/
+~/.cron-agents/
 ├── config.json              # Configuration
 ├── tasks/                   # Task definitions
 │   ├── daily-summary.md
@@ -115,7 +115,7 @@ Format as a concise report and save to memory.
 
 1. **Schedule** → Windows Task Scheduler triggers at scheduled time
 2. **Execute** → Task runs via Claude CLI or Anthropic API
-3. **Log** → Execution results written to `~/.cron-claude/logs/` with HMAC signature
+3. **Log** → Execution results written to `~/.cron-agents/logs/` with HMAC signature
 4. **Notify** → Optional toast notification on completion
 
 ## 🛠️ Available Tools
@@ -265,7 +265,7 @@ Every task execution is automatically logged with:
 - ✅ Timestamps for each operation
 - ✅ HMAC-SHA256 cryptographic signature
 
-**Logs are stored as markdown files** in `~/.cron-claude/logs/` with filenames like:
+**Logs are stored as markdown files** in `~/.cron-agents/logs/` with filenames like:
 ```
 {task-id}_{timestamp}_{execution-id}.md
 ```
@@ -287,8 +287,8 @@ Claude will check the HMAC signature to ensure authenticity.
 
 ### Secret Key
 
-On first use, Cron-Claude generates a secret key:
-- Stored in: `~/.cron-claude/config.json`
+On first use, cron-agents generates a secret key:
+- Stored in: `~/.cron-agents/config.json`
 - Used for: Signing all log entries with HMAC-SHA256
 - Keep secure: Treat like a password
 
@@ -404,11 +404,11 @@ Check system health:
    cat ~/.claude/config.json
    ```
 
-2. Look for `cron-claude` in `mcpServers`
+2. Look for `cron-agents` in `mcpServers`
 
 3. Reinstall plugin:
    ```bash
-   claude plugin add @patrick-rodgers/cron-claude
+   claude plugin add @sebastienlevert/cron-agents
    ```
 
 4. Restart Claude Code
@@ -427,7 +427,7 @@ Claude will:
 
 You can also check Windows Task Scheduler manually:
 - Open Task Scheduler
-- Look for tasks named `CronClaude_[task-id]`
+- Look for tasks named `CronAgents_[task-id]`
 
 ### No Toast Notifications
 
@@ -437,10 +437,10 @@ You can also check Windows Task Scheduler manually:
 
 ### Logs Not Appearing
 
-- Check configured log directory in `~/.cron-claude/config.json`
+- Check configured log directory in `~/.cron-agents/config.json`
 - Verify directory has write permissions
 - Check disk space availability
-- Look in default location: `~/.cron-claude/logs/`
+- Look in default location: `~/.cron-agents/logs/`
 
 ## 🔧 Development
 
@@ -463,8 +463,8 @@ This launches the MCP Inspector where you can manually invoke tools and see resp
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/patrick-rodgers/cron-claude.git
-cd cron-claude
+git clone https://github.com/sebastienlevert/cron-agents.git
+cd cron-agents
 ```
 
 2. Install and build:
@@ -476,7 +476,7 @@ npm run build
 3. Link locally for testing:
 ```bash
 npm link
-claude plugin add <path-to-cron-claude>
+claude plugin add <path-to-cron-agents>
 ```
 
 ## 📄 License

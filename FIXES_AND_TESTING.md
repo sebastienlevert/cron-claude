@@ -21,7 +21,7 @@
 ```json
 {
   "command": "cmd",
-  "args": ["/c", "npx", "@patrick-rodgers/cron-claude"]
+  "args": ["/c", "npx", "@sebastienlevert/cron-agents"]
 }
 ```
 
@@ -29,7 +29,7 @@
 ```json
 {
   "command": "node",
-  "args": ["D:\\github\\cron-claude\\dist\\mcp-server.js"]
+  "args": ["D:\\github\\cron-agents\\dist\\mcp-server.js"]
 }
 ```
 
@@ -52,7 +52,7 @@
 
 **Task Scheduling:**
 - [ ] Register task via `cron_register_task`
-- [ ] Verify appears in Windows Task Scheduler as `CronClaude_{task_id}`
+- [ ] Verify appears in Windows Task Scheduler as `CronAgents_{task_id}`
 - [ ] Check task status shows "Registered: ✓"
 - [ ] Verify next run time displayed
 
@@ -89,7 +89,7 @@ Since we're inside a Claude Code session, the MCP server restart needs to happen
 
 **Option 2 - Manual MCP Server Config:**
 1. Check `~/.claude/config.json` for mcpServers
-2. Ensure cron-claude points to local path
+2. Ensure cron-agents points to local path
 3. Restart Claude Code
 
 ## Verification After Restart
@@ -133,25 +133,25 @@ For production use (after testing):
 
 ```bash
 # Option 1: Install from local directory
-cd D:\github\cron-claude
+cd D:\github\cron-agents
 npm link
 
 # Option 2: Add via Claude Code (when outside session)
-claude plugin add D:\github\cron-claude
+claude plugin add D:\github\cron-agents
 
 # Option 3: Install from npm (after publishing)
-npm install -g @patrick-rodgers/cron-claude
+npm install -g @sebastienlevert/cron-agents
 ```
 
 ## Configuration Files
 
-**User Config:** `~/.cron-claude/config.json`
+**User Config:** `~/.cron-agents/config.json`
 ```json
 {
   "secretKey": "...",
   "version": "0.1.0",
   "storageType": "auto",  // or "file" or "memory"
-  "tasksDir": "D:\\github\\cron-claude\\tasks",
+  "tasksDir": "D:\\github\\cron-agents\\tasks",
   "storagePreferenceSet": true
 }
 ```
@@ -160,9 +160,9 @@ npm install -g @patrick-rodgers/cron-claude
 ```json
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "node",
-      "args": ["D:\\github\\cron-claude\\dist\\mcp-server.js"]
+      "args": ["D:\\github\\cron-agents\\dist\\mcp-server.js"]
     }
   }
 }

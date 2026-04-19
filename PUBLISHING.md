@@ -1,6 +1,6 @@
 # Publishing Guide
 
-This guide explains how to publish `cron-claude` to npm.
+This guide explains how to publish `cron-agents` to npm.
 
 ## 🚀 Quick Publish
 
@@ -69,7 +69,7 @@ npm creates the tarball with all files from the `files` array.
 The published package includes:
 
 ```
-@patrick-rodgers/cron-claude@0.1.0
+@sebastienlevert/cron-agents@0.1.0
 ├── dist/                          # Compiled JavaScript
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # MCP server config
@@ -178,18 +178,18 @@ npm whoami
 After publishing:
 
 1. **Verify on npm**
-   - Visit https://www.npmjs.com/package/@patrick-rodgers/cron-claude
+   - Visit https://www.npmjs.com/package/@sebastienlevert/cron-agents
    - Check version is updated
    - Verify README renders correctly
 
 2. **Test installation**
    ```bash
-   npx @patrick-rodgers/cron-claude@latest
+   npx @sebastienlevert/cron-agents@latest
    ```
 
 3. **Test plugin installation**
    ```bash
-   claude plugin add @patrick-rodgers/cron-claude
+   claude plugin add @sebastienlevert/cron-agents
    ```
 
 4. **Create GitHub release** (optional)
@@ -271,18 +271,18 @@ npm pack --dry-run
 ### Create tarball locally (for testing)
 ```bash
 npm pack
-# Creates: patrick-rodgers-cron-claude-0.1.0.tgz
+# Creates: sebastienlevert-cron-agents-0.1.0.tgz
 ```
 
 ### Test local tarball installation
 ```bash
-npm install -g ./patrick-rodgers-cron-claude-0.1.0.tgz
-cron-claude  # Test binary works
+npm install -g ./sebastienlevert-cron-agents-0.1.0.tgz
+cron-agents  # Test binary works
 ```
 
 ### Unpublish (within 72 hours)
 ```bash
-npm unpublish @patrick-rodgers/cron-claude@0.1.0
+npm unpublish @sebastienlevert/cron-agents@0.1.0
 ```
 
 **⚠️ Warning:** Unpublishing is permanent and can break dependent projects!

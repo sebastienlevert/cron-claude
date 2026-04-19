@@ -1,11 +1,11 @@
 {
-  "name": "@patrick-rodgers/cron-claude",
+  "name": "@sebastienlevert/cron-agents",
   "version": "0.1.5",
   "description": "Scheduled Claude task execution - MCP server for automating recurring tasks via cron schedules",
   "type": "module",
   "main": "dist/mcp-server.js",
   "bin": {
-    "cron-claude": "dist/mcp-server.js"
+    "cron-agents": "dist/mcp-server.js"
   },
   "files": [
     "dist",
@@ -48,11 +48,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/patrick-rodgers/cron-claude.git"
+    "url": "git+https://github.com/sebastienlevert/cron-agents.git"
   },
-  "homepage": "https://github.com/patrick-rodgers/cron-claude#readme",
+  "homepage": "https://github.com/sebastienlevert/cron-agents#readme",
   "bugs": {
-    "url": "https://github.com/patrick-rodgers/cron-claude/issues"
+    "url": "https://github.com/sebastienlevert/cron-agents/issues"
   },
   "engines": {
     "node": ">=18.0.0"

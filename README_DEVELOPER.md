@@ -1,4 +1,4 @@
-# Developer Guide - Cron-Claude
+# Developer Guide - cron-agents
 
 ## Recent Changes
 
@@ -28,7 +28,7 @@
 
 ### 1. Install Dependencies
 ```bash
-cd D:\github\cron-claude
+cd D:\github\cron-agents
 npm install
 ```
 
@@ -50,9 +50,9 @@ The `.mcp.json` in the project root is already configured for local development:
 ```json
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "node",
-      "args": ["D:\\github\\cron-claude\\dist\\mcp-server.js"]
+      "args": ["D:\\github\\cron-agents\\dist\\mcp-server.js"]
     }
   }
 }
@@ -64,9 +64,9 @@ Add to `~/.claude/config.json`:
 ```json
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "node",
-      "args": ["D:\\github\\cron-claude\\dist\\mcp-server.js"]
+      "args": ["D:\\github\\cron-agents\\dist\\mcp-server.js"]
     }
   }
 }
@@ -140,7 +140,7 @@ enabled: true
 ## File Structure
 
 ```
-cron-claude/
+cron-agents/
 ├── src/
 │   ├── storage/           # NEW: Storage abstraction
 │   │   ├── interface.ts   # TaskStorage interface
@@ -208,7 +208,7 @@ TaskStorage Interface
 
 ### Storage Not Detected
 **Check:**
-- `~/.cron-claude/config.json` for storageType
+- `~/.cron-agents/config.json` for storageType
 - odsp-memory availability: `odsp-memory status`
 
 ## Git Workflow
@@ -250,7 +250,7 @@ Revert .mcp.json to use npx:
 ```json
 {
   "command": "cmd",
-  "args": ["/c", "npx", "@patrick-rodgers/cron-claude"]
+  "args": ["/c", "npx", "@sebastienlevert/cron-agents"]
 }
 ```
 
@@ -264,6 +264,6 @@ Revert .mcp.json to use npx:
 
 ## Support
 
-- **Issues:** https://github.com/patrick-rodgers/cron-claude/issues
+- **Issues:** https://github.com/sebastienlevert/cron-agents/issues
 - **Documentation:** See CLAUDE.md and README.md
 - **Testing Guide:** See FIXES_AND_TESTING.md

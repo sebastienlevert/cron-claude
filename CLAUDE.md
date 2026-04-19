@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Project Overview
 
-**Cron-Claude** - An MCP (Model Context Protocol) server that enables scheduled, automated execution of coding agent tasks using Windows Task Scheduler. Define tasks in markdown files, schedule them with cron expressions, and let your preferred coding agent (Claude Code, GitHub Copilot CLI, or API) run them automatically.
+**cron-agents** - An MCP (Model Context Protocol) server that enables scheduled, automated execution of coding agent tasks using Windows Task Scheduler. Define tasks in markdown files, schedule them with cron expressions, and let your preferred coding agent (Claude Code, GitHub Copilot CLI, or API) run them automatically.
 
 **Key Features:**
 - 11 MCP tools for complete task lifecycle management
@@ -34,7 +34,7 @@ npm run prepack      # Build before publishing
 ### MCP Server Entry Point
 
 - **`src/mcp-server.ts`** → **`dist/mcp-server.js`** - Primary entry point
-- Registered as `cron-claude` binary in package.json
+- Registered as `cron-agents` binary in package.json
 - Uses `@modelcontextprotocol/sdk` with stdio transport
 - Exposes 11 tools for task management
 - Never uses `console.log()` (stdio protocol constraint), only `console.error()` for logging
@@ -80,7 +80,7 @@ npm run prepack      # Build before publishing
   - Configurable per-task
 
 - **`config.ts`** - Configuration management
-  - Loads/saves config from `~/.cron-claude/config.json`
+  - Loads/saves config from `~/.cron-agents/config.json`
   - Manages secret key for HMAC signing
   - Configurable task and log directories
   - Auto-generates key on first use
@@ -97,15 +97,15 @@ npm run prepack      # Build before publishing
 
 ### Data Flow
 
-1. **Task Storage**: `~/.cron-claude/tasks/*.md` - Markdown files with YAML frontmatter
+1. **Task Storage**: `~/.cron-agents/tasks/*.md` - Markdown files with YAML frontmatter
 2. **Execution**: Task Scheduler → PowerShell → Node.js → `executeTask()`
-3. **Logging**: Execution results → Logger → `~/.cron-claude/logs/*.md` with HMAC signatures
+3. **Logging**: Execution results → Logger → `~/.cron-agents/logs/*.md` with HMAC signatures
 4. **Notifications**: Completion → Notifier → Windows Toast
 
 ### File Structure
 
 ```
-~/.cron-claude/
+~/.cron-agents/
 ├── config.json              # Configuration (secret key, directories)
 ├── tasks/                   # Task definitions
 │   ├── morning-greeting.md
@@ -177,7 +177,7 @@ This project is a Claude Code plugin (installed via `claude plugin add`):
 ### SessionStart Hook Behavior
 
 When a new session starts, the `hooks/session-start.sh` hook displays:
-1. Welcome message about Cron-Claude availability
+1. Welcome message about cron-agents availability
 2. Quick command reference
 3. Available tools list
 
@@ -214,7 +214,7 @@ This helps users discover cron functionality in new sessions.
 
 **Critical Feature**: All task executions are logged with cryptographic signatures for tamper-proof audit trails.
 
-**Log Storage**: `~/.cron-claude/logs/`
+**Log Storage**: `~/.cron-agents/logs/`
 - Filename format: `{taskId}_{timestamp}_{executionId}.md`
 - Sorted chronologically for easy review
 - HMAC-SHA256 signatures prevent tampering
@@ -241,7 +241,7 @@ signature: hmac-sha256-hex
 ```
 
 **Signature Verification:**
-- Uses secret key from `~/.cron-claude/config.json`
+- Uses secret key from `~/.cron-agents/config.json`
 - HMAC-SHA256 of log content (excluding signature field)
 - Verifiable with `cron_verify_log` tool
 - Ensures logs haven't been modified
@@ -250,10 +250,10 @@ signature: hmac-sha256-hex
 
 - All imports use `.js` extensions (ESM requirement with NodeNext)
 - MCP server logs to stderr only (stdio protocol requirement)
-- Tasks stored as `~/.cron-claude/tasks/<task-id>.md`
-- Logs stored as `~/.cron-claude/logs/<task-id>_<timestamp>_<exec-id>.md`
-- Windows Task Scheduler task names: `CronClaude_<task-id>`
-- All task and log paths are configurable via `~/.cron-claude/config.json`
+- Tasks stored as `~/.cron-agents/tasks/<task-id>.md`
+- Logs stored as `~/.cron-agents/logs/<task-id>_<timestamp>_<exec-id>.md`
+- Windows Task Scheduler task names: `CronAgents_<task-id>`
+- All task and log paths are configurable via `~/.cron-agents/config.json`
 
 ## Testing
 
@@ -276,22 +276,22 @@ npx @modelcontextprotocol/inspector node dist/mcp-server.js
 
 ## Configuration
 
-**User Config Location:** `~/.cron-claude/config.json`
+**User Config Location:** `~/.cron-agents/config.json`
 
 ```json
 {
   "secretKey": "hex-encoded-hmac-key",
   "version": "0.1.0",
-  "tasksDir": "C:\\Users\\username\\.cron-claude\\tasks",
-  "logsDir": "C:\\Users\\username\\.cron-claude\\logs"
+  "tasksDir": "C:\\Users\\username\\.cron-agents\\tasks",
+  "logsDir": "C:\\Users\\username\\.cron-agents\\logs"
 }
 ```
 
 **Configuration Options:**
 - `secretKey` - HMAC-SHA256 key for log signing (auto-generated)
 - `version` - Config version for future migrations
-- `tasksDir` - Where to store task definition files (default: `~/.cron-claude/tasks`)
-- `logsDir` - Where to store execution logs (default: `~/.cron-claude/logs`)
+- `tasksDir` - Where to store task definition files (default: `~/.cron-agents/tasks`)
+- `logsDir` - Where to store execution logs (default: `~/.cron-agents/logs`)
 
 **Note**: Users can customize directories to use OneDrive, Dropbox, or any other location for backup/sync.
 
@@ -335,21 +335,21 @@ Errors are surfaced to Claude with clear, actionable messages.
 
 **Via Claude Code (recommended):**
 ```bash
-claude plugin add @patrick-rodgers/cron-claude
+claude plugin add @sebastienlevert/cron-agents
 ```
 
 **Via npm + manual configuration:**
 ```bash
-npm install -g @patrick-rodgers/cron-claude
+npm install -g @sebastienlevert/cron-agents
 ```
 
 Then add to `~/.claude/config.json`:
 ```json
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "npx",
-      "args": ["@patrick-rodgers/cron-claude"]
+      "args": ["@sebastienlevert/cron-agents"]
     }
   }
 }
@@ -366,7 +366,7 @@ Before publishing to npm:
 ## Troubleshooting
 
 **Task not executing:**
-- Check Task Scheduler for `CronClaude_<task-id>`
+- Check Task Scheduler for `CronAgents_<task-id>`
 - Verify task is enabled in both file and scheduler
 - Check Windows Event Viewer for Task Scheduler errors
 

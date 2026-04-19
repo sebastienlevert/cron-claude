@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cron-Claude MCP Server
+ * cron-agents MCP Server
  * Exposes scheduled task management via Model Context Protocol
  */
 
@@ -241,7 +241,7 @@ const tools: Tool[] = [
  */
 const server = new Server(
   {
-    name: 'cron-claude',
+    name: 'cron-agents',
     version: VERSION,
   },
   {
@@ -614,7 +614,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const taskCount = tasks.length;
         const concurrency = await getConcurrencyStatus();
 
-        const output = `Cron-Claude System Status
+        const output = `cron-agents System Status
 
 Version: ${VERSION}
 Config directory: ${getConfigDir()}
@@ -801,7 +801,7 @@ async function main() {
   await server.connect(transport);
 
   // Log to stderr (stdout is reserved for MCP protocol)
-  console.error('Cron-Claude MCP server running on stdio');
+  console.error('cron-agents MCP server running on stdio');
 }
 
 main().catch((error) => {

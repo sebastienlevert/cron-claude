@@ -226,7 +226,7 @@ export function generateTaskSchedulerCommand(
 
   // Use XML-based registration for accurate trigger types
   const psScript = `
-$taskName = "CronClaude_${taskId}"
+$taskName = "CronAgents_${taskId}"
 $taskXml = @'
 ${taskXml}
 '@
@@ -281,12 +281,12 @@ export async function registerTask(
     const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
 
     // Write a PowerShell script with embedded XML to avoid encoding issues
-    const tempScript = join(tmpdir(), `cron-claude-register-${taskId}-${Date.now()}.ps1`);
+    const tempScript = join(tmpdir(), `cron-agents-register-${taskId}-${Date.now()}.ps1`);
     const psScript = `$ErrorActionPreference = 'Stop'
 $taskXml = @"
 ${taskXml}
 "@
-Register-ScheduledTask -TaskName "CronClaude_${taskId}" -Xml $taskXml -Force
+Register-ScheduledTask -TaskName "CronAgents_${taskId}" -Xml $taskXml -Force
 Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
 `;
     writeFileSync(tempScript, psScript, 'utf-8');
@@ -319,13 +319,13 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
           });
 
           // Verify the task was created
-          const verifyCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName 'CronClaude_${taskId}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
+          const verifyCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName 'CronAgents_${taskId}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
           const { stdout } = await execAsync(verifyCommand, {
             timeout: PS_TIMEOUT_MS,
             encoding: 'utf-8',
           });
 
-          if (stdout.trim() === `CronClaude_${taskId}`) {
+          if (stdout.trim() === `CronAgents_${taskId}`) {
             console.error(`✓ Task "${taskId}" registered successfully with elevated privileges`);
           } else {
             throw new Error('Task registration was cancelled or failed');
@@ -350,7 +350,7 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
  */
 export async function unregisterTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronClaude_${taskId}`;
+    const taskName = `CronAgents_${taskId}`;
     const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:\\$false"`;
 
     await execAsync(psCommand, {
@@ -370,7 +370,7 @@ export async function unregisterTask(taskId: string): Promise<void> {
  */
 export async function enableTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronClaude_${taskId}`;
+    const taskName = `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /ENABLE`;
 
     await execAsync(command, {
@@ -390,7 +390,7 @@ export async function enableTask(taskId: string): Promise<void> {
  */
 export async function disableTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronClaude_${taskId}`;
+    const taskName = `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /DISABLE`;
 
     await execAsync(command, {
@@ -415,7 +415,7 @@ export async function getTaskStatus(taskId: string): Promise<{
   nextRunTime?: string;
 }> {
   try {
-    const taskName = `CronClaude_${taskId}`;
+    const taskName = `CronAgents_${taskId}`;
     const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${taskName}' | Select-Object @{Name='State';Expression={$_.State.ToString()}}, @{Name='LastRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').LastRunTime}}, @{Name='NextRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').NextRunTime}} | ConvertTo-Json"`;
 
     const { stdout } = await execAsync(psCommand, {

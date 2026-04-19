@@ -36,7 +36,7 @@ if (existsSync(pkgPath)) {
   check('Version format', /^\d+\.\d+\.\d+/.test(pkg.version), `Invalid version: ${pkg.version}`);
 
   // 3. Check required fields
-  check('Name field', pkg.name === '@patrick-rodgers/cron-claude', 'Incorrect package name');
+  check('Name field', pkg.name === '@sebastienlevert/cron-agents', 'Incorrect package name');
   check('Description', pkg.description && pkg.description.length > 10, 'Missing or short description');
   check('License', pkg.license === 'MIT', 'Missing or incorrect license');
   check('Repository', pkg.repository && pkg.repository.url, 'Missing repository URL');
@@ -47,7 +47,7 @@ if (existsSync(pkgPath)) {
   check('Required files', hasAllFiles, `Missing required files in package.json`);
 
   // 5. Check bin field
-  check('Binary entry point', pkg.bin && pkg.bin['cron-claude'], 'Missing binary entry point');
+  check('Binary entry point', pkg.bin && pkg.bin['cron-agents'], 'Missing binary entry point');
 
   // 6. Check main field
   check('Main entry point', pkg.main === 'dist/mcp-server.js', 'Incorrect main entry point');
@@ -67,7 +67,7 @@ if (existsSync(pluginPath)) {
   check('Version sync', plugin.version === pkg.version,
     `Version mismatch: package.json=${pkg.version}, plugin.json=${plugin.version}`);
 
-  check('Plugin name', plugin.name === 'cron-claude', 'Incorrect plugin name');
+  check('Plugin name', plugin.name === 'cron-agents', 'Incorrect plugin name');
 
   check('MCP permissions', plugin.permissions && plugin.permissions.mcp, 'Missing MCP permissions');
 }

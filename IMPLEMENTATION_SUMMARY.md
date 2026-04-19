@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented a flexible storage abstraction layer for cron-claude that supports multiple storage backends with automatic detection and fallback.
+Successfully implemented a flexible storage abstraction layer for cron-agents that supports multiple storage backends with automatic detection and fallback.
 
 ## What Was Implemented
 
@@ -134,7 +134,7 @@ Integrated storage layer into all MCP tools:
 
 **Automatic (Default):**
 ```bash
-# Simply use cron-claude - storage auto-detected
+# Simply use cron-agents - storage auto-detected
 cron_create_task(task_id="daily", ...)
 ```
 

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "cron-claude": {
+    "cron-agents": {
       "command": "node",
       "args": ["dist/mcp-server.js"]
     }

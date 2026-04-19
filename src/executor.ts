@@ -49,7 +49,7 @@ async function executeViaCLI(
   return new Promise((resolve) => {
     try {
       // Create a temporary file with the instructions
-      const tempFile = `${process.env.TEMP || '/tmp'}/cron-claude-task-${task.id}-${Date.now()}.md`;
+      const tempFile = `${process.env.TEMP || '/tmp'}/cron-agents-task-${task.id}-${Date.now()}.md`;
       writeFileSync(tempFile, task.instructions, 'utf-8');
 
       addLogStep(log, 'Created temporary task file', tempFile);

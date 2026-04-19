@@ -1,5 +1,5 @@
 /**
- * Cron-Claude - Scheduled Claude task execution
+ * cron-agents - Scheduled Claude task execution
  * Main entry point and exports
  */
 

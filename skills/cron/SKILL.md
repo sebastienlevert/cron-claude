@@ -1,10 +1,10 @@
-# Cron-Claude Skill
+# cron-agents Skill
 
 Automated task scheduling and execution for AI coding agents via Windows Task Scheduler.
 
 ## Overview
 
-Cron-Claude enables you to schedule coding agent tasks (Claude Code, GitHub Copilot CLI, or API) to perform tasks automatically on recurring schedules. Tasks are defined in markdown files and executed via Windows Task Scheduler.
+cron-agents enables you to schedule coding agent tasks (Claude Code, GitHub Copilot CLI, or API) to perform tasks automatically on recurring schedules. Tasks are defined in markdown files and executed via Windows Task Scheduler.
 
 ## Features
 
