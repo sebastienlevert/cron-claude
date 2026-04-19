@@ -14,8 +14,8 @@ import { detectAgentPath, getAgentConfig, getDefaultAgent } from './agents.js';
 
 const execAsync = promisify(exec);
 
-// Timeout for PowerShell commands (15 seconds should be plenty for scheduler operations)
-const PS_TIMEOUT_MS = 15_000;
+// Timeout for PowerShell commands (30 seconds to accommodate slow Get-ScheduledTaskInfo calls)
+const PS_TIMEOUT_MS = 30_000;
 
 /**
  * Detect the path to node executable
@@ -371,9 +371,9 @@ export async function unregisterTask(taskId: string): Promise<void> {
 export async function enableTask(taskId: string): Promise<void> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Enable-ScheduledTask -TaskName '${taskName}'"`;
+    const command = `schtasks /Change /TN "${taskName}" /ENABLE`;
 
-    await execAsync(psCommand, {
+    await execAsync(command, {
       timeout: PS_TIMEOUT_MS,
       encoding: 'utf-8',
     });
@@ -391,9 +391,9 @@ export async function enableTask(taskId: string): Promise<void> {
 export async function disableTask(taskId: string): Promise<void> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Disable-ScheduledTask -TaskName '${taskName}'"`;
+    const command = `schtasks /Change /TN "${taskName}" /DISABLE`;
 
-    await execAsync(psCommand, {
+    await execAsync(command, {
       timeout: PS_TIMEOUT_MS,
       encoding: 'utf-8',
     });
@@ -416,7 +416,7 @@ export async function getTaskStatus(taskId: string): Promise<{
 }> {
   try {
     const taskName = `CronClaude_${taskId}`;
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${taskName}' | Select-Object State, @{Name='LastRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').LastRunTime}}, @{Name='NextRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').NextRunTime}} | ConvertTo-Json"`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${taskName}' | Select-Object @{Name='State';Expression={$_.State.ToString()}}, @{Name='LastRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').LastRunTime}}, @{Name='NextRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').NextRunTime}} | ConvertTo-Json"`;
 
     const { stdout } = await execAsync(psCommand, {
       timeout: PS_TIMEOUT_MS,

@@ -93,17 +93,17 @@ async function executeViaCLI(
       agentProcess.stdout?.on('data', (chunk: Buffer) => { stdoutData += chunk.toString(); });
       agentProcess.stderr?.on('data', (chunk: Buffer) => { stderrData += chunk.toString(); });
 
-      // Set timeout (30 minutes default)
+      // Set timeout (60 minutes default — allows for long WorkIQ queries and multi-step skills)
       const timeout = setTimeout(() => {
-        addLogStep(log, 'Execution timeout', 'Task exceeded 30 minute limit');
+        addLogStep(log, 'Execution timeout', 'Task exceeded 60 minute limit');
         agentProcess.kill('SIGTERM');
         resolve({
           success: false,
           output: stdoutData,
-          error: 'Execution timeout after 30 minutes',
+          error: 'Execution timeout after 60 minutes',
           steps: log.steps
         });
-      }, 30 * 60 * 1000);
+      }, 60 * 60 * 1000);
 
       agentProcess.on('close', (code) => {
         clearTimeout(timeout);
