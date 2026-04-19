@@ -80,6 +80,38 @@ vi.mock('../runs.js', () => ({
   updateRun: updateRunMock,
 }));
 
+// chains — stub out to avoid transitive imports of tasks/runs at module level
+vi.mock('../chains.js', () => ({
+  triggerDependents: vi.fn(async () => {}),
+  areDependenciesMet: vi.fn(() => true),
+  validateDAG: vi.fn(() => ({ valid: true, errors: [] })),
+}));
+
+// template — stub out to avoid git/config side effects
+vi.mock('../template.js', () => ({
+  resolveVariables: vi.fn((text: string) => ({ resolved: text, warnings: [] })),
+  redactForDisplay: vi.fn((text: string) => text),
+  listVariables: vi.fn(() => []),
+}));
+
+// config — avoid filesystem reads
+vi.mock('../config.js', () => ({
+  loadConfig: vi.fn(() => ({
+    secretKey: 'test-key',
+    version: '0.1.0',
+    tasksDir: '/tmp/tasks',
+    logsDir: '/tmp/logs',
+    tasksDirs: [],
+    variables: {},
+  })),
+}));
+
+// tasks — stub getTask/getTaskFilePath to avoid filesystem reads
+vi.mock('../tasks.js', () => ({
+  getTask: vi.fn(() => null),
+  getTaskFilePath: vi.fn(() => null),
+}));
+
 // ---------------------------------------------------------------------------
 // Dynamic import handle
 // ---------------------------------------------------------------------------
@@ -218,6 +250,9 @@ beforeEach(async () => {
   });
   detectAgentPathMock.mockClear().mockReturnValue('claude');
   getDefaultAgentMock.mockClear().mockReturnValue('claude');
+
+  // Stabilize retry jitter: Math.random()=0.5 → jitter factor = (0.5*2-1)=0 → no jitter
+  vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
   executorModule = await import('../executor.js');
 });

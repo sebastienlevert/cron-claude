@@ -64,18 +64,42 @@ export function getTaskFilePath(taskId: string): string {
  * Convert TaskDefinition to markdown with YAML frontmatter
  */
 function taskToMarkdown(task: TaskDefinition): string {
-  return `---
+  let yaml = `---
 id: ${task.id}
 schedule: "${task.schedule}"
 invocation: ${task.invocation}
 agent: ${task.agent}
 notifications:
   toast: ${task.notifications.toast}
-enabled: ${task.enabled}
----
+enabled: ${task.enabled}`;
+
+  // Optional: dependsOn
+  if (task.dependsOn && task.dependsOn.length > 0) {
+    yaml += `\ndependsOn:\n${task.dependsOn.map(d => `  - ${d}`).join('\n')}`;
+  }
+
+  // Optional: retry policy
+  if (task.retry) {
+    yaml += `\nretry:`;
+    if (task.retry.maxRetries !== undefined) yaml += `\n  maxRetries: ${task.retry.maxRetries}`;
+    if (task.retry.backoff) yaml += `\n  backoff: ${task.retry.backoff}`;
+    if (task.retry.initialDelay !== undefined) yaml += `\n  initialDelay: ${task.retry.initialDelay}`;
+    if (task.retry.maxDelay !== undefined) yaml += `\n  maxDelay: ${task.retry.maxDelay}`;
+  }
+
+  // Optional: variables
+  if (task.variables && Object.keys(task.variables).length > 0) {
+    yaml += `\nvariables:`;
+    for (const [key, value] of Object.entries(task.variables)) {
+      yaml += `\n  ${key}: "${value}"`;
+    }
+  }
+
+  yaml += `\n---
 
 ${task.instructions}
 `;
+  return yaml;
 }
 
 /**
@@ -85,7 +109,7 @@ function parseTaskFile(filePath: string): TaskDefinition {
   const content = readFileSync(filePath, 'utf-8');
   const parsed = matter(content);
 
-  return {
+  const task: TaskDefinition = {
     id: parsed.data.id || 'unknown',
     schedule: parsed.data.schedule || '0 0 * * *',
     invocation: parsed.data.invocation || 'cli',
@@ -94,6 +118,29 @@ function parseTaskFile(filePath: string): TaskDefinition {
     enabled: parsed.data.enabled !== false,
     instructions: parsed.content,
   };
+
+  // Parse optional fields
+  if (Array.isArray(parsed.data.dependsOn)) {
+    task.dependsOn = parsed.data.dependsOn.filter((d: unknown) => typeof d === 'string' && d.trim());
+  }
+
+  if (parsed.data.retry && typeof parsed.data.retry === 'object') {
+    task.retry = {};
+    const r = parsed.data.retry;
+    if (typeof r.maxRetries === 'number') task.retry.maxRetries = r.maxRetries;
+    if (typeof r.backoff === 'string') task.retry.backoff = r.backoff;
+    if (typeof r.initialDelay === 'number') task.retry.initialDelay = r.initialDelay;
+    if (typeof r.maxDelay === 'number') task.retry.maxDelay = r.maxDelay;
+  }
+
+  if (parsed.data.variables && typeof parsed.data.variables === 'object' && !Array.isArray(parsed.data.variables)) {
+    task.variables = {};
+    for (const [k, v] of Object.entries(parsed.data.variables)) {
+      task.variables[k] = String(v);
+    }
+  }
+
+  return task;
 }
 
 /**

@@ -10,7 +10,7 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
 import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } from './scheduler.js';
-import { executeTask } from './executor.js';
+import { executeTask, dryRunTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
 import { listTasks, getTask, getTaskFilePath, taskExists, createTask } from './tasks.js';
@@ -19,6 +19,10 @@ import { getRun, getLatestRunForTask } from './runs.js';
 import { getConcurrencyStatus, tryAcquireSlot, waitForSlot } from './concurrency.js';
 import { createRun, updateRun, cleanupOldRuns } from './runs.js';
 import { TaskDefinition, AgentType } from './types.js';
+import { validateDAG, getDAGDisplay, getDependents, areDependenciesMet } from './chains.js';
+import { getBuiltinVariables } from './template.js';
+import { runWatch } from './watch.js';
+import { startDashboard } from './dashboard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,6 +45,9 @@ program
   .option('-a, --agent <agent>', 'Coding agent to use (claude, copilot)', getDefaultAgent())
   .option('-m, --method <method>', 'Invocation method (cli, api)', 'cli')
   .option('--no-toast', 'Disable toast notifications')
+  .option('--depends-on <tasks>', 'Comma-separated task IDs this task depends on')
+  .option('--retry-max <n>', 'Max retry attempts', '3')
+  .option('--retry-backoff <strategy>', 'Backoff strategy (fixed, exponential, linear)', 'fixed')
   .action(async (taskId: string, options) => {
     if (taskExists(taskId)) {
       console.error(`Error: Task "${taskId}" already exists`);
@@ -62,6 +69,17 @@ program
       instructions: `# Task Instructions\n\nWrite your instructions for the coding agent here.\n`,
     };
 
+    if (options.dependsOn) {
+      task.dependsOn = options.dependsOn.split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+
+    if (options.retryMax !== '3' || options.retryBackoff !== 'fixed') {
+      task.retry = {
+        maxRetries: parseInt(options.retryMax) || 3,
+        backoff: options.retryBackoff as any,
+      };
+    }
+
     createTask(task);
     const filePath = getTaskFilePath(taskId);
 
@@ -69,6 +87,9 @@ program
     console.log(`  Location: ${filePath}`);
     console.log(`  Agent: ${options.agent}`);
     console.log(`  Schedule: ${options.schedule}`);
+    if (task.dependsOn?.length) {
+      console.log(`  Depends on: ${task.dependsOn.join(', ')}`);
+    }
     console.log(`\nNext steps:`);
     console.log(`  1. Edit the task file to add your instructions`);
     console.log(`  2. Run: cron-agents register ${taskId}`);
@@ -91,6 +112,7 @@ program
     for (const task of tasks) {
       try {
         const status = await getTaskStatus(task.id);
+        const full = getTask(task.id);
 
         console.log(`📋 ${task.id}`);
         console.log(`   Schedule: ${task.schedule}`);
@@ -98,7 +120,18 @@ program
         console.log(`   Agent: ${task.agent}`);
         console.log(`   Enabled (file): ${task.enabled ? '✓' : '✗'}`);
 
-        // Show active run status (queued vs running)
+        // Show dependencies
+        if (full?.dependsOn?.length) {
+          const { met } = areDependenciesMet(task.id);
+          console.log(`   Depends on: ${full.dependsOn.join(', ')} ${met ? '(✓ met)' : '(⏳ waiting)'}`);
+        }
+
+        // Show retry policy
+        if (full?.retry) {
+          console.log(`   Retry: ${full.retry.maxRetries || 3}x ${full.retry.backoff || 'fixed'}`);
+        }
+
+        // Show active run status
         const latestRun = getLatestRunForTask(task.id);
         if (latestRun && (latestRun.status === 'running' || latestRun.status === 'queued')) {
           const elapsed = Math.round((Date.now() - new Date(latestRun.startedAt).getTime()) / 1000);
@@ -150,6 +183,24 @@ program
     console.log(`Notifications: ${task.notifications?.toast ? 'Toast' : 'None'}`);
     console.log(`Registered: ${status.exists ? '✓' : '✗'}`);
     console.log(`File: ${getTaskFilePath(taskId)}`);
+
+    if (task.dependsOn?.length) {
+      console.log(`Depends on: ${task.dependsOn.join(', ')}`);
+      const { met, details } = areDependenciesMet(taskId);
+      console.log(`Dependencies: ${met ? '✓ All met' : '⏳ Waiting'}`);
+      for (const d of details) {
+        console.log(`  - ${d.taskId}: ${d.status} (${d.met ? '✓' : '✗'})`);
+      }
+    }
+
+    if (task.retry) {
+      console.log(`Retry: ${task.retry.maxRetries || 3}x, ${task.retry.backoff || 'fixed'} backoff, ${task.retry.initialDelay || 15}s initial`);
+    }
+
+    if (task.variables && Object.keys(task.variables).length > 0) {
+      console.log(`Variables: ${JSON.stringify(task.variables)}`);
+    }
+
     console.log(`\n--- Instructions ---\n`);
     console.log(task.instructions.trim());
   });
@@ -219,6 +270,7 @@ program
   .command('run <task-id>')
   .description('Execute a task (foreground by default, --background for async)')
   .option('-b, --background', 'Run in background and return immediately')
+  .option('-n, --dry-run', 'Validate without executing')
   .action(async (taskId: string, options) => {
     try {
       const task = getTask(taskId);
@@ -229,6 +281,26 @@ program
 
       const filePath = getTaskFilePath(taskId);
 
+      // --- Dry-run mode ---
+      if (options.dryRun) {
+        const result = await dryRunTask(filePath);
+        console.log(`\nDry-run for task: ${result.taskId}\n`);
+
+        for (const check of result.checks) {
+          const icon = check.passed ? '✅' : '❌';
+          console.log(`  ${icon} ${check.name}: ${check.detail}`);
+        }
+
+        console.log(`\nOverall: ${result.valid ? '✓ All checks passed' : '✗ Some checks failed'}`);
+
+        if (result.resolvedInstructions) {
+          console.log(`\n--- Resolved Instructions (preview) ---\n`);
+          console.log(result.resolvedInstructions.slice(0, 500));
+          if (result.resolvedInstructions.length > 500) console.log('...(truncated)');
+        }
+        return;
+      }
+
       // Detect agent path for CLI tasks
       let agentCliPath: string | undefined;
       if (task.invocation === 'cli') {
@@ -236,12 +308,11 @@ program
       }
 
       if (options.background) {
-        // Background mode: mirrors MCP cron_run_task behavior
+        // Background mode
         const slotResult = await tryAcquireSlot();
         const initialStatus = slotResult.acquired ? 'running' as const : 'queued' as const;
         const run = createRun(taskId, initialStatus);
 
-        // Fire-and-forget execution
         (async () => {
           try {
             if (initialStatus === 'queued') {
@@ -250,7 +321,7 @@ program
               updateRun(run.runId, { status: 'running', pid: process.pid });
             }
 
-            const result = await executeTask(filePath, agentCliPath, run.runId);
+            const result = await executeTask(filePath, { agentPath: agentCliPath, runId: run.runId });
             updateRun(run.runId, {
               status: result.success ? 'success' : 'failure',
               finishedAt: new Date().toISOString(),
@@ -276,9 +347,9 @@ program
         console.log(`\nRun ID: ${run.runId}`);
         console.log(`Check status: cron-agents run-status --run-id ${run.runId}`);
       } else {
-        // Foreground mode: synchronous execution
+        // Foreground mode
         console.log(`Executing task: ${taskId}...\n`);
-        const result = await executeTask(filePath, agentCliPath);
+        const result = await executeTask(filePath, { agentPath: agentCliPath });
 
         if (result.success) {
           console.log(`\n✓ Task execution completed`);
@@ -338,6 +409,10 @@ program
     console.log(`Elapsed: ${elapsed}`);
     if (run.logPath) console.log(`Log: ${run.logPath}`);
     if (run.error) console.log(`Error: ${run.error}`);
+    if (run.triggerType) console.log(`Trigger: ${run.triggerType}`);
+    if (run.triggeredBy) console.log(`Triggered by: ${run.triggeredBy}`);
+    if (run.chainId) console.log(`Chain: ${run.chainId}`);
+    if (run.attempt && run.attempt > 1) console.log(`Attempt: ${run.attempt}`);
   });
 
 // ── logs ────────────────────────────────────────────────────────────────────
@@ -442,6 +517,89 @@ program
       const detected = detectAgentPath(agent);
       console.log(`  - ${ac.displayName} (${agent}): ${detected ? `✓ Found at ${detected}` : '✗ Not found'}`);
     }
+
+    if (config.variables && Object.keys(config.variables).length > 0) {
+      console.log('');
+      console.log('Global Variables:');
+      for (const [k, v] of Object.entries(config.variables)) {
+        console.log(`  ${k}: ${v}`);
+      }
+    }
+  });
+
+// ── chains ──────────────────────────────────────────────────────────────────
+program
+  .command('chains')
+  .description('Show task dependency graph and chain status')
+  .action(() => {
+    const errors = validateDAG();
+    if (errors.length > 0) {
+      console.error('⚠️  DAG validation errors:');
+      for (const err of errors) {
+        console.error(`  ✗ ${err}`);
+      }
+      console.error('');
+    }
+
+    console.log(getDAGDisplay());
+  });
+
+// ── watch ───────────────────────────────────────────────────────────────────
+program
+  .command('watch')
+  .description('Live terminal monitoring of tasks and runs')
+  .option('-i, --interval <ms>', 'Refresh interval in milliseconds', '2000')
+  .action(async (options) => {
+    const interval = parseInt(options.interval) || 2000;
+    await runWatch(interval);
+  });
+
+// ── dashboard ───────────────────────────────────────────────────────────────
+program
+  .command('dashboard')
+  .description('Start web dashboard for monitoring')
+  .option('-p, --port <port>', 'Port number', '7890')
+  .action((options) => {
+    const port = parseInt(options.port) || 7890;
+    const { url, stop } = startDashboard(port);
+
+    console.log(`✓ Dashboard started at ${url}`);
+    console.log(`Press Ctrl+C to stop\n`);
+
+    const handler = () => {
+      console.log('\nStopping dashboard...');
+      stop().then(() => process.exit(0));
+    };
+
+    process.on('SIGINT', handler);
+    process.on('SIGTERM', handler);
+  });
+
+// ── variables ───────────────────────────────────────────────────────────────
+program
+  .command('variables')
+  .description('List available template variables')
+  .action(() => {
+    console.log('Available Template Variables:\n');
+    console.log('Use {{variable}} syntax in task instructions.\n');
+
+    const builtins = getBuiltinVariables();
+    console.log('Built-in:');
+    for (const v of builtins) {
+      console.log(`  {{${v}}}`);
+    }
+
+    const config = loadConfig();
+    if (config.variables && Object.keys(config.variables).length > 0) {
+      console.log('\nGlobal (from config):');
+      for (const k of Object.keys(config.variables)) {
+        console.log(`  {{${k}}} = "${config.variables[k]}"`);
+      }
+    }
+
+    console.log('\nTask-level variables can be defined in frontmatter:');
+    console.log('  variables:');
+    console.log('    myVar: "value"');
   });
 
 // Parse arguments and execute

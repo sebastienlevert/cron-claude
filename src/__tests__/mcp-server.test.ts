@@ -291,9 +291,9 @@ describe('Tool definitions', () => {
     expect(capturedHandlers.has('tools/call')).toBe(true);
   });
 
-  it('should expose exactly 12 tools', async () => {
+  it('should expose exactly 14 tools', async () => {
     const result = await getListToolsHandler()({});
-    expect(result.tools).toHaveLength(12);
+    expect(result.tools).toHaveLength(14);
   });
 
   it('every tool has a name, description, and inputSchema', async () => {

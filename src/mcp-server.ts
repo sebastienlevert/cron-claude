@@ -16,7 +16,7 @@ import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
 import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } from './scheduler.js';
-import { executeTask } from './executor.js';
+import { executeTask, dryRunTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
 import { TaskDefinition, AgentType } from './types.js';
@@ -30,6 +30,8 @@ import {
 import { getSupportedAgents, getAgentConfig, detectAgentPath, getDefaultAgent, isValidAgent } from './agents.js';
 import { createRun, updateRun, getRun, getLatestRunForTask, cleanupOldRuns } from './runs.js';
 import { tryAcquireSlot, waitForSlot, getConcurrencyStatus } from './concurrency.js';
+import { validateDAG, getDAGDisplay, areDependenciesMet } from './chains.js';
+import { getBuiltinVariables } from './template.js';
 
 // Get project root (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -84,6 +86,25 @@ const tools: Tool[] = [
           type: 'boolean',
           description: 'Enable task immediately',
           default: true,
+        },
+        depends_on: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task IDs this task depends on (DAG chaining)',
+        },
+        retry: {
+          type: 'object',
+          description: 'Retry policy configuration',
+          properties: {
+            maxRetries: { type: 'number', description: 'Maximum retry attempts (default: 3)' },
+            backoff: { type: 'string', enum: ['fixed', 'exponential', 'linear'], description: 'Backoff strategy' },
+            initialDelay: { type: 'number', description: 'Initial delay in seconds (default: 15)' },
+            maxDelay: { type: 'number', description: 'Maximum delay in seconds (default: 300)' },
+          },
+        },
+        variables: {
+          type: 'object',
+          description: 'Custom template variables for this task',
         },
       },
       required: ['task_id', 'instructions'],
@@ -234,6 +255,28 @@ const tools: Tool[] = [
       },
     },
   },
+  {
+    name: 'cron_dry_run',
+    description: 'Validate a task without executing it. Checks parsing, agent detection, concurrency, dependencies, and template variables.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID to dry-run',
+        },
+      },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'cron_list_chains',
+    description: 'Show task dependency graph and chain status. Validates DAG for cycles and missing dependencies.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 /**
@@ -267,7 +310,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case 'cron_create_task': {
-        const { task_id, schedule, invocation, agent, instructions, toast_notifications, enabled } =
+        const { task_id, schedule, invocation, agent, instructions, toast_notifications, enabled, depends_on, retry, variables } =
           args as any;
 
         // Validate agent if provided
@@ -282,6 +325,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           enabled: enabled !== false,
           instructions,
         };
+
+        // Optional new fields
+        if (Array.isArray(depends_on) && depends_on.length > 0) {
+          taskDef.dependsOn = depends_on;
+        }
+        if (retry && typeof retry === 'object') {
+          taskDef.retry = retry;
+        }
+        if (variables && typeof variables === 'object') {
+          taskDef.variables = variables;
+        }
 
         if (taskExists(task_id)) {
           return {
@@ -494,8 +548,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               updateRun(run.runId, { status: 'running', pid: process.pid });
             }
 
-            // Execute task, passing runId so executor skips its own concurrency gate
-            const result = await executeTask(filePath, agentCliPath, run.runId);
+            const result = await executeTask(filePath, { agentPath: agentCliPath, runId: run.runId });
             updateRun(run.runId, {
               status: result.success ? 'success' : 'failure',
               finishedAt: new Date().toISOString(),
@@ -770,6 +823,11 @@ ${task.instructions}`;
         if (run.logPath) output += `Log: ${run.logPath}\n`;
         if (run.error) output += `Error: ${run.error}\n`;
 
+        if (run.triggerType) output += `Trigger: ${run.triggerType}\n`;
+        if (run.triggeredBy) output += `Triggered by: ${run.triggeredBy}\n`;
+        if (run.chainId) output += `Chain: ${run.chainId}\n`;
+        if (run.attempt && run.attempt > 1) output += `Attempt: ${run.attempt}\n`;
+
         return {
           content: [
             {
@@ -777,6 +835,54 @@ ${task.instructions}`;
               text: output,
             },
           ],
+        };
+      }
+
+      case 'cron_dry_run': {
+        const { task_id } = args as any;
+
+        if (!taskExists(task_id)) {
+          return {
+            content: [{ type: 'text', text: `Error: Task not found: ${task_id}` }],
+          };
+        }
+
+        const filePath = getTaskFilePath(task_id);
+        const result = await dryRunTask(filePath);
+
+        let output = `Dry-run for task: ${result.taskId}\n\n`;
+        for (const check of result.checks) {
+          const icon = check.passed ? '✅' : '❌';
+          output += `${icon} ${check.name}: ${check.detail}\n`;
+        }
+        output += `\nOverall: ${result.valid ? '✓ All checks passed' : '✗ Some checks failed'}`;
+
+        if (result.resolvedInstructions) {
+          output += `\n\n--- Resolved Instructions (preview) ---\n${result.resolvedInstructions.slice(0, 1000)}`;
+          if (result.resolvedInstructions.length > 1000) output += '\n...(truncated)';
+        }
+
+        return {
+          content: [{ type: 'text', text: output }],
+        };
+      }
+
+      case 'cron_list_chains': {
+        const errors = validateDAG();
+        let output = '';
+
+        if (errors.length > 0) {
+          output += '⚠️ DAG validation errors:\n';
+          for (const err of errors) {
+            output += `  ✗ ${err}\n`;
+          }
+          output += '\n';
+        }
+
+        output += getDAGDisplay();
+
+        return {
+          content: [{ type: 'text', text: output }],
         };
       }
 
