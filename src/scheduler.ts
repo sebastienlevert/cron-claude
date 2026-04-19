@@ -18,6 +18,65 @@ const execAsync = promisify(exec);
 const PS_TIMEOUT_MS = 30_000;
 
 /**
+ * Derive a human-friendly recurrence label from a cron expression.
+ * Returns: Hourly, Daily, Weekly, Monthly, or Quarterly
+ */
+export function getRecurrenceLabel(cronExpr: string): string {
+  const parts = cronExpr.split(' ');
+  if (parts.length !== 5) return 'Daily';
+
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
+  // Hourly: hour contains a range (e.g., 7-17) or step (*/2)
+  if (hour.includes('-') || hour.includes('/') || hour === '*') {
+    return 'Hourly';
+  }
+
+  // Quarterly: monthly trigger with exactly 4 quarter months
+  if (dayOfMonth !== '*' && month !== '*') {
+    const months = expandCronField(month, 1, 12);
+    if (months.length <= 4) return 'Quarterly';
+    return 'Monthly';
+  }
+
+  // Monthly: specific day(s) of month
+  if (dayOfMonth !== '*') return 'Monthly';
+
+  // Weekly: specific day(s) of week
+  if (dayOfWeek !== '*') return 'Weekly';
+
+  return 'Daily';
+}
+
+/**
+ * Build the Windows Task Scheduler task name with recurrence prefix.
+ * Format: CronAgents_<Recurrence>_<taskId>
+ */
+export function buildScheduledTaskName(taskId: string, cronExpr?: string): string {
+  if (cronExpr) {
+    const label = getRecurrenceLabel(cronExpr);
+    return `CronAgents_${label}_${taskId}`;
+  }
+  // Fallback when cron expr not available — search for any matching task
+  return `CronAgents_*_${taskId}`;
+}
+
+/**
+ * Find the actual scheduled task name for a given taskId (handles recurrence prefix).
+ * Returns the full task name or null if not found.
+ */
+async function findScheduledTaskName(taskId: string): Promise<string | null> {
+  try {
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask | Where-Object { $_.TaskName -match '^CronAgents_.*_${taskId}$' -or $_.TaskName -eq 'CronAgents_${taskId}' } | Select-Object -ExpandProperty TaskName -First 1"`;
+    const { stdout } = await execAsync(psCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
+    const name = stdout.trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Detect the path to node executable
  */
 function detectNodePath(): string {
@@ -281,12 +340,13 @@ export async function registerTask(
     const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
 
     // Write a PowerShell script with embedded XML to avoid encoding issues
+    const scheduledTaskName = buildScheduledTaskName(taskId, cronExpr);
     const tempScript = join(tmpdir(), `cron-agents-register-${taskId}-${Date.now()}.ps1`);
     const psScript = `$ErrorActionPreference = 'Stop'
 $taskXml = @"
 ${taskXml}
 "@
-Register-ScheduledTask -TaskName "CronAgents_${taskId}" -Xml $taskXml -Force
+Register-ScheduledTask -TaskName "${scheduledTaskName}" -Xml $taskXml -Force
 Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
 `;
     writeFileSync(tempScript, psScript, 'utf-8');
@@ -298,7 +358,7 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
         timeout: PS_TIMEOUT_MS,
         encoding: 'utf-8',
       });
-      console.error(`✓ Task "${taskId}" registered successfully (${trigger.type} at ${trigger.time})`);
+      console.error(`✓ Task "${scheduledTaskName}" registered successfully (${trigger.type} at ${trigger.time})`);
     } catch (normalError: any) {
       // Check if it's an access denied error
       const errorText = (normalError.message || '') + (normalError.stderr || '');
@@ -319,14 +379,14 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
           });
 
           // Verify the task was created
-          const verifyCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName 'CronAgents_${taskId}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
+          const verifyCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${scheduledTaskName}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty TaskName"`;
           const { stdout } = await execAsync(verifyCommand, {
             timeout: PS_TIMEOUT_MS,
             encoding: 'utf-8',
           });
 
-          if (stdout.trim() === `CronAgents_${taskId}`) {
-            console.error(`✓ Task "${taskId}" registered successfully with elevated privileges`);
+          if (stdout.trim() === scheduledTaskName) {
+            console.error(`✓ Task "${scheduledTaskName}" registered successfully with elevated privileges`);
           } else {
             throw new Error('Task registration was cancelled or failed');
           }
@@ -350,7 +410,7 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
  */
 export async function unregisterTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronAgents_${taskId}`;
+    const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:\\$false"`;
 
     await execAsync(psCommand, {
@@ -358,7 +418,7 @@ export async function unregisterTask(taskId: string): Promise<void> {
       encoding: 'utf-8',
     });
 
-    console.error(`✓ Task "${taskId}" unregistered successfully`);
+    console.error(`✓ Task "${taskName}" unregistered successfully`);
   } catch (error) {
     console.error(`Failed to unregister task "${taskId}":`, error);
     throw error;
@@ -370,7 +430,7 @@ export async function unregisterTask(taskId: string): Promise<void> {
  */
 export async function enableTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronAgents_${taskId}`;
+    const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /ENABLE`;
 
     await execAsync(command, {
@@ -378,7 +438,7 @@ export async function enableTask(taskId: string): Promise<void> {
       encoding: 'utf-8',
     });
 
-    console.error(`✓ Task "${taskId}" enabled`);
+    console.error(`✓ Task "${taskName}" enabled`);
   } catch (error) {
     console.error(`Failed to enable task "${taskId}":`, error);
     throw error;
@@ -390,7 +450,7 @@ export async function enableTask(taskId: string): Promise<void> {
  */
 export async function disableTask(taskId: string): Promise<void> {
   try {
-    const taskName = `CronAgents_${taskId}`;
+    const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /DISABLE`;
 
     await execAsync(command, {
@@ -398,7 +458,7 @@ export async function disableTask(taskId: string): Promise<void> {
       encoding: 'utf-8',
     });
 
-    console.error(`✓ Task "${taskId}" disabled`);
+    console.error(`✓ Task "${taskName}" disabled`);
   } catch (error) {
     console.error(`Failed to disable task "${taskId}":`, error);
     throw error;
@@ -415,7 +475,7 @@ export async function getTaskStatus(taskId: string): Promise<{
   nextRunTime?: string;
 }> {
   try {
-    const taskName = `CronAgents_${taskId}`;
+    const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask -TaskName '${taskName}' | Select-Object @{Name='State';Expression={$_.State.ToString()}}, @{Name='LastRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').LastRunTime}}, @{Name='NextRunTime';Expression={(Get-ScheduledTaskInfo -TaskName '${taskName}').NextRunTime}} | ConvertTo-Json"`;
 
     const { stdout } = await execAsync(psCommand, {
