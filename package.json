@@ -29,7 +29,11 @@
     "prepublishOnly": "npm run build && npm run validate && node scripts/swap-mcp-config.js publish",
     "postpublish": "node scripts/swap-mcp-config.js dev",
     "validate": "node scripts/validate.js",
-    "test": "npx @modelcontextprotocol/inspector node dist/mcp-server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "preversion": "npm run build",
     "postversion": "git push && git push --tags"
   },
@@ -70,6 +74,8 @@
     "@types/node-cron": "^3.0.11",
     "@types/node-notifier": "^8.0.5",
     "sharp": "^0.34.5",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitepress": "^1.6.4",
+    "vitest": "^4.1.4"
   }
 }
