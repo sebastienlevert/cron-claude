@@ -4,7 +4,7 @@
  */
 
 import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, basename } from 'path';
 import matter from 'gray-matter';
 import { TaskDefinition } from './types.js';
 import { loadConfig } from './config.js';
@@ -109,8 +109,12 @@ function parseTaskFile(filePath: string): TaskDefinition {
   const content = readFileSync(filePath, 'utf-8');
   const parsed = matter(content);
 
+  // Accept both 'id' and 'task_id' from frontmatter, fall back to filename
+  const idFromFilename = basename(filePath, '.md');
+  const resolvedId = parsed.data.id || parsed.data.task_id || idFromFilename;
+
   const task: TaskDefinition = {
-    id: parsed.data.id || 'unknown',
+    id: resolvedId,
     schedule: parsed.data.schedule || '0 0 * * *',
     invocation: parsed.data.invocation || 'cli',
     agent: parsed.data.agent || getDefaultAgent(),

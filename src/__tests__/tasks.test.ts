@@ -402,6 +402,67 @@ describe('taskExists', () => {
 });
 
 // ---------------------------------------------------------------------------
+// parseTaskFile: task_id alias and filename fallback
+// ---------------------------------------------------------------------------
+describe('task_id alias and filename fallback', () => {
+  it('parses task_id from frontmatter as alias for id', () => {
+    writeRawTask(
+      tasksDir,
+      'weekly-dashboard',
+      '---\ntask_id: weekly-dashboard\nschedule: "0 18 * * 1-5"\ninvocation: cli\nagent: claude\nenabled: true\nnotifications:\n  toast: false\n---\n\n# Dashboard\n',
+    );
+    const task = getTask('weekly-dashboard');
+    expect(task).not.toBeNull();
+    expect(task!.id).toBe('weekly-dashboard');
+  });
+
+  it('prefers id over task_id when both are present', () => {
+    writeRawTask(
+      tasksDir,
+      'prefer-id',
+      '---\nid: canonical-id\ntask_id: alias-id\nschedule: "0 0 * * *"\n---\n\nInstructions\n',
+    );
+    const task = getTask('prefer-id');
+    expect(task).not.toBeNull();
+    expect(task!.id).toBe('canonical-id');
+  });
+
+  it('falls back to filename when neither id nor task_id is in frontmatter', () => {
+    writeRawTask(
+      tasksDir,
+      'weekly-opportunity-radar',
+      '---\nschedule: "0 8 * * 1"\ninvocation: cli\nagent: claude\nenabled: true\nnotifications:\n  toast: false\n---\n\n# Opportunity Radar\n',
+    );
+    const task = getTask('weekly-opportunity-radar');
+    expect(task).not.toBeNull();
+    expect(task!.id).toBe('weekly-opportunity-radar');
+  });
+
+  it('lists tasks with task_id frontmatter correctly', () => {
+    writeRawTask(
+      tasksDir,
+      'task-id-list',
+      '---\ntask_id: task-id-list\nschedule: "0 9 * * *"\ninvocation: cli\nagent: claude\nenabled: true\nnotifications:\n  toast: false\n---\n\nHello\n',
+    );
+    const tasks = listTasks();
+    const found = tasks.find((t) => t.id === 'task-id-list');
+    expect(found).toBeDefined();
+    expect(found!.schedule).toBe('0 9 * * *');
+  });
+
+  it('lists tasks with no id in frontmatter using filename as id', () => {
+    writeRawTask(
+      tasksDir,
+      'no-id-field',
+      '---\nschedule: "0 12 * * *"\ninvocation: cli\nagent: claude\nenabled: true\nnotifications:\n  toast: false\n---\n\nSome task\n',
+    );
+    const tasks = listTasks();
+    const found = tasks.find((t) => t.id === 'no-id-field');
+    expect(found).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getTaskFilePath
 // ---------------------------------------------------------------------------
 describe('getTaskFilePath', () => {

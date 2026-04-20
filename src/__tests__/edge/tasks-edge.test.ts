@@ -113,8 +113,8 @@ describe('corrupt YAML frontmatter', () => {
     writeRaw(tasksDir, 'empty-fm.md', '---\n---\n\n# Just instructions\n');
     const task = tasksModule.getTask('empty-fm');
     expect(task).not.toBeNull();
-    // id defaults to 'unknown' when missing
-    expect(task!.id).toBe('unknown');
+    // id falls back to filename when missing from frontmatter
+    expect(task!.id).toBe('empty-fm');
   });
 
   it('handles file with only whitespace', () => {
@@ -127,11 +127,11 @@ describe('corrupt YAML frontmatter', () => {
 // Missing required fields
 // ---------------------------------------------------------------------------
 describe('missing required fields', () => {
-  it('defaults id to unknown when not specified', () => {
+  it('defaults id to filename when not specified', () => {
     writeRaw(tasksDir, 'no-id.md', '---\nschedule: "0 9 * * *"\n---\n\n# Hello\n');
     const task = tasksModule.getTask('no-id');
     expect(task).not.toBeNull();
-    expect(task!.id).toBe('unknown');
+    expect(task!.id).toBe('no-id');
   });
 
   it('defaults schedule to "0 0 * * *" when missing', () => {
@@ -461,8 +461,8 @@ describe('task file with no frontmatter', () => {
     writeRaw(tasksDir, 'plain.md', '# Just markdown\n\nNo frontmatter here.\n');
     const task = tasksModule.getTask('plain');
     expect(task).not.toBeNull();
-    // gray-matter with no frontmatter: data is empty, content is the whole file
-    expect(task!.id).toBe('unknown');
+    // gray-matter with no frontmatter: data is empty, id falls back to filename
+    expect(task!.id).toBe('plain');
     expect(task!.instructions).toContain('# Just markdown');
   });
 
