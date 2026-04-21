@@ -281,8 +281,8 @@ describe('registerTask', () => {
     await registerTask('copilot-task', TASK_FILE, '0 9 * * *', PROJECT_ROOT, 'copilot');
 
     const scriptContent = ps1WriteTracker.mock.calls[0][1] as string;
-    // detectAgentPath('copilot') returns 'copilot'
-    expect(scriptContent).toContain('"copilot"');
+    // detectAgentPath('copilot') returns 'copilot' — single-quoted and XML-escaped in task XML
+    expect(scriptContent).toContain("&apos;copilot&apos;");
   });
 
   it('creates temp .ps1 file, execs it, and cleans up', async () => {

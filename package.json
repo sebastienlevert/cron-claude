@@ -3,10 +3,9 @@
   "version": "0.1.5",
   "description": "Scheduled Claude task execution - MCP server for automating recurring tasks via cron schedules",
   "type": "module",
-  "main": "dist/mcp-server.js",
+  "main": "dist/cli.js",
   "bin": {
-    "cron-agents": "dist/mcp-server.js",
-    "cron-agents-cli": "dist/cli.js"
+    "cron-agents": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -23,7 +22,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "start": "node dist/mcp-server.js",
+    "start": "node dist/cli.js mcp",
     "dev": "tsc --watch",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build && npm run validate && node scripts/swap-mcp-config.js publish",

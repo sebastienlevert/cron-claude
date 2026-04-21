@@ -941,9 +941,10 @@ ${task.instructions}`;
 });
 
 /**
- * Start the server
+ * Start the MCP server on stdio.
+ * Exported so it can be called from the CLI `mcp` subcommand.
  */
-async function main() {
+export async function startMcpServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -951,7 +952,11 @@ async function main() {
   console.error('cron-agents MCP server running on stdio');
 }
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Auto-start when run directly (e.g. node dist/mcp-server.js)
+const isDirectRun = process.argv[1]?.endsWith('mcp-server.js');
+if (isDirectRun) {
+  startMcpServer().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

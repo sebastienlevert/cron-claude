@@ -54,6 +54,9 @@ export function parseTaskDefinition(filePath: string): TaskDefinition {
       taskDef.variables[k] = String(v);
     }
   }
+  if (typeof parsed.data.timeout === 'number' && parsed.data.timeout > 0) {
+    taskDef.timeout = parsed.data.timeout;
+  }
 
   return taskDef;
 }
@@ -112,16 +115,17 @@ async function executeViaCLI(
       agentProcess.stdout?.on('data', (chunk: Buffer) => { stdoutData += chunk.toString(); });
       agentProcess.stderr?.on('data', (chunk: Buffer) => { stderrData += chunk.toString(); });
 
+      const timeoutMinutes = task.timeout || 60;
       const timeout = setTimeout(() => {
-        addLogStep(log, 'Execution timeout', 'Task exceeded 60 minute limit');
+        addLogStep(log, 'Execution timeout', `Task exceeded ${timeoutMinutes} minute limit`);
         agentProcess.kill('SIGTERM');
         resolve({
           success: false,
           output: stdoutData,
-          error: 'Execution timeout after 60 minutes',
+          error: `Execution timeout after ${timeoutMinutes} minutes`,
           steps: log.steps
         });
-      }, 60 * 60 * 1000);
+      }, timeoutMinutes * 60 * 1000);
 
       agentProcess.on('close', (code) => {
         clearTimeout(timeout);

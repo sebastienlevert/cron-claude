@@ -621,5 +621,14 @@ program
     }
   });
 
+// ── mcp ─────────────────────────────────────────────────────────────────────
+program
+  .command('mcp')
+  .description('Start the MCP (Model Context Protocol) server on stdio')
+  .action(async () => {
+    const { startMcpServer } = await import('./mcp-server.js');
+    await startMcpServer();
+  });
+
 // Parse arguments and execute
 program.parse();

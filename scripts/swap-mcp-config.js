@@ -3,8 +3,8 @@
  * Swaps .mcp.json between local dev and published npm versions.
  *
  * Usage:
- *   node scripts/swap-mcp-config.js dev    → points to local dist/mcp-server.js
- *   node scripts/swap-mcp-config.js publish → points to npx @sebastienlevert/cron-agents@latest
+ *   node scripts/swap-mcp-config.js dev    → points to local dist/cli.js mcp
+ *   node scripts/swap-mcp-config.js publish → points to npx @sebastienlevert/cron-agents@latest mcp
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -19,7 +19,7 @@ const configs = {
     mcpServers: {
       'cron-agents': {
         command: 'node',
-        args: ['dist/mcp-server.js'],
+        args: ['dist/cli.js', 'mcp'],
       },
     },
   },
@@ -27,7 +27,7 @@ const configs = {
     mcpServers: {
       'cron-agents': {
         command: 'npx',
-        args: ['@sebastienlevert/cron-agents@latest'],
+        args: ['@sebastienlevert/cron-agents@latest', 'mcp'],
       },
     },
   },

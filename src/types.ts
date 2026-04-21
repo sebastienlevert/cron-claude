@@ -60,6 +60,8 @@ export interface TaskDefinition {
   retry?: Partial<RetryPolicy>;
   /** Custom variables for template resolution */
   variables?: Record<string, string>;
+  /** Execution timeout in minutes (default: 60) */
+  timeout?: number;
 }
 
 // ── Logging ─────────────────────────────────────────────────────────────────
