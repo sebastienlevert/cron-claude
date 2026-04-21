@@ -89,10 +89,11 @@ function detectNodePath(): string {
 
 interface ScheduleTrigger {
   type: 'daily' | 'weekly' | 'monthly';
-  time: string; // HH:MM format
+  time: string; // HH:MM format (start time)
   daysOfWeek?: string[]; // For weekly: Sunday, Monday, etc.
   daysOfMonth?: number[]; // For monthly: 1-31
   monthNames?: string[]; // For monthly: January, February, etc.
+  repetition?: { interval: string; duration: string }; // For hour ranges: PT1H, PT10H etc.
 }
 
 const WEEKDAY_XML_NAMES: Record<string, string> = {
@@ -147,21 +148,48 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
   const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
 
   // Parse time — resolve step/range expressions to their first value
+  // Also detect hour ranges/steps that need repetition intervals
   let time = '00:00';
+  let repetition: { interval: string; duration: string } | undefined;
+
   if (hour !== '*' && minute !== '*') {
     const hours = expandCronField(hour, 0, 23);
     const minutes = expandCronField(minute, 0, 59);
     const h = (hours[0] ?? 0).toString().padStart(2, '0');
     const m = (minutes[0] ?? 0).toString().padStart(2, '0');
     time = `${h}:${m}`;
+
+    // If multiple hours, compute repetition interval
+    if (hours.length > 1) {
+      const intervalHours = hours[1] - hours[0]; // assume uniform spacing
+      const durationHours = hours[hours.length - 1] - hours[0];
+      repetition = {
+        interval: `PT${intervalHours}H`,
+        duration: `PT${durationHours}H`,
+      };
+    }
   } else if (hour !== '*' && minute === '*') {
     const hours = expandCronField(hour, 0, 23);
     const h = (hours[0] ?? 0).toString().padStart(2, '0');
     time = `${h}:00`;
+
+    if (hours.length > 1) {
+      const intervalHours = hours[1] - hours[0];
+      const durationHours = hours[hours.length - 1] - hours[0];
+      repetition = {
+        interval: `PT${intervalHours}H`,
+        duration: `PT${durationHours}H`,
+      };
+    }
   } else if (hour === '*' && minute !== '*') {
     const minutes = expandCronField(minute, 0, 59);
     const m = (minutes[0] ?? 0).toString().padStart(2, '0');
     time = `00:${m}`;
+    // hour=* means every hour → repetition every 1 hour for 24 hours
+    repetition = { interval: 'PT1H', duration: 'PT23H' };
+  } else if (hour === '*' && minute === '*') {
+    // Every minute of every hour — not common but handle it
+    repetition = { interval: 'PT1H', duration: 'PT23H' };
   }
 
   // Weekly: specific day(s) of week, any day-of-month, any month
@@ -170,7 +198,7 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
     const dayNames = dayNums.map((d) => WEEKDAY_XML_NAMES[d.toString()] || 'Monday');
     // Deduplicate (0 and 7 both map to Sunday)
     const unique = [...new Set(dayNames)];
-    return { type: 'weekly', time, daysOfWeek: unique };
+    return { type: 'weekly', time, daysOfWeek: unique, repetition };
   }
 
   // Monthly: specific day(s) of month
@@ -179,11 +207,11 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
     const months = month !== '*'
       ? expandCronField(month, 1, 12).map((m) => MONTH_XML_NAMES[m])
       : Object.values(MONTH_XML_NAMES);
-    return { type: 'monthly', time, daysOfMonth: days, monthNames: months };
+    return { type: 'monthly', time, daysOfMonth: days, monthNames: months, repetition };
   }
 
   // Default: daily
-  return { type: 'daily', time };
+  return { type: 'daily', time, repetition };
 }
 
 /**
@@ -192,11 +220,21 @@ export function parseCronExpression(cronExpr: string): ScheduleTrigger {
 function buildTriggerXml(trigger: ScheduleTrigger): string {
   const startBoundary = `2026-01-01T${trigger.time}:00`;
 
+  // Build repetition XML if the trigger has an interval (hour ranges/steps)
+  const repetitionXml = trigger.repetition
+    ? `
+        <Repetition>
+          <Interval>${trigger.repetition.interval}</Interval>
+          <Duration>${trigger.repetition.duration}</Duration>
+          <StopAtDurationEnd>false</StopAtDurationEnd>
+        </Repetition>`
+    : '';
+
   if (trigger.type === 'weekly' && trigger.daysOfWeek) {
     return `
       <CalendarTrigger>
         <StartBoundary>${startBoundary}</StartBoundary>
-        <Enabled>true</Enabled>
+        <Enabled>true</Enabled>${repetitionXml}
         <ScheduleByWeek>
           <WeeksInterval>1</WeeksInterval>
           <DaysOfWeek>
@@ -210,7 +248,7 @@ function buildTriggerXml(trigger: ScheduleTrigger): string {
     return `
       <CalendarTrigger>
         <StartBoundary>${startBoundary}</StartBoundary>
-        <Enabled>true</Enabled>
+        <Enabled>true</Enabled>${repetitionXml}
         <ScheduleByMonth>
           <Months>
             ${trigger.monthNames.map((m) => `<${m} />`).join('\n            ')}
@@ -226,7 +264,7 @@ function buildTriggerXml(trigger: ScheduleTrigger): string {
   return `
       <CalendarTrigger>
         <StartBoundary>${startBoundary}</StartBoundary>
-        <Enabled>true</Enabled>
+        <Enabled>true</Enabled>${repetitionXml}
         <ScheduleByDay>
           <DaysInterval>1</DaysInterval>
         </ScheduleByDay>
@@ -234,7 +272,8 @@ function buildTriggerXml(trigger: ScheduleTrigger): string {
 }
 
 /**
- * Generate full Task Scheduler XML for a task
+ * Generate full Task Scheduler XML for a task.
+ * Wraps execution in powershell -WindowStyle Hidden so no console window is visible.
  */
 function buildFullTaskXml(
   nodePath: string,
@@ -243,13 +282,17 @@ function buildFullTaskXml(
 ): string {
   const triggerXml = buildTriggerXml(trigger);
 
+  // Escape XML special characters in the inner command
+  const escapedNodePath = escapeXml(nodePath);
+  const escapedArgs = escapeXml(executorArgs);
+
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>${triggerXml}
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <LogonType>S4U</LogonType>
+      <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
   </Principals>
@@ -265,11 +308,23 @@ function buildFullTaskXml(
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>${nodePath}</Command>
-      <Arguments>${executorArgs}</Arguments>
+      <Command>powershell.exe</Command>
+      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -Command "&amp; '${escapedNodePath}' ${escapedArgs}"</Arguments>
     </Exec>
   </Actions>
 </Task>`;
+}
+
+/**
+ * Escape special characters for use inside XML attribute/text content.
+ */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 /**
@@ -318,7 +373,7 @@ export async function registerTask(
     console.error(`Agent: ${agentConfig.displayName}`);
 
     const trigger = parseCronExpression(cronExpr);
-    console.error(`Trigger type: ${trigger.type}, time: ${trigger.time}`);
+    console.error(`Trigger type: ${trigger.type}, time: ${trigger.time}${trigger.repetition ? `, repeats every ${trigger.repetition.interval} for ${trigger.repetition.duration}` : ''}`);
 
     const executorPath = resolve(projectRoot, 'dist', 'executor.js');
     const absoluteTaskPath = resolve(taskFilePath);
@@ -416,7 +471,7 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
 export async function unregisterTask(taskId: string): Promise<void> {
   try {
     const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
-    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:\\$false"`;
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false"`;
 
     await execAsync(psCommand, {
       timeout: PS_TIMEOUT_MS,
