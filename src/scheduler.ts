@@ -18,6 +18,18 @@ const execAsync = promisify(exec);
 const PS_TIMEOUT_MS = 30_000;
 
 /**
+ * Check if an error is an access-denied / permission error from Task Scheduler.
+ */
+function isAccessDeniedError(error: any): boolean {
+  const errorText = (error.message || '') + (error.stderr || '');
+  return (
+    errorText.includes('Access is denied') ||
+    errorText.includes('0x80070005') ||
+    errorText.includes('PermissionDenied')
+  );
+}
+
+/**
  * Derive a human-friendly recurrence label from a cron expression.
  * Returns: Hourly, Daily, Weekly, Monthly, or Quarterly
  */
@@ -420,14 +432,7 @@ Write-Host "Task registered successfully (${trigger.type} at ${trigger.time})"
       });
       console.error(`✓ Task "${scheduledTaskName}" registered successfully (${trigger.type} at ${trigger.time})`);
     } catch (normalError: any) {
-      // Check if it's an access denied error
-      const errorText = (normalError.message || '') + (normalError.stderr || '');
-      const isAccessDenied =
-        errorText.includes('Access is denied') ||
-        errorText.includes('0x80070005') ||
-        errorText.includes('PermissionDenied');
-
-      if (isAccessDenied) {
+      if (isAccessDeniedError(normalError)) {
         console.error('Administrator privileges required. Requesting elevation...');
 
         try {
@@ -473,12 +478,28 @@ export async function unregisterTask(taskId: string): Promise<void> {
     const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false"`;
 
-    await execAsync(psCommand, {
-      timeout: PS_TIMEOUT_MS,
-      encoding: 'utf-8',
-    });
-
-    console.error(`✓ Task "${taskName}" unregistered successfully`);
+    try {
+      await execAsync(psCommand, {
+        timeout: PS_TIMEOUT_MS,
+        encoding: 'utf-8',
+      });
+      console.error(`✓ Task "${taskName}" unregistered successfully`);
+    } catch (normalError: any) {
+      if (isAccessDeniedError(normalError)) {
+        console.error('Administrator privileges required. Requesting elevation...');
+        const tempScript = join(tmpdir(), `cron-agents-unregister-${taskId}-${Date.now()}.ps1`);
+        writeFileSync(tempScript, `Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false`, 'utf-8');
+        try {
+          const elevatedCommand = `powershell.exe -NoProfile -NonInteractive -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
+          await execAsync(elevatedCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
+          console.error(`✓ Task "${taskName}" unregistered successfully with elevated privileges`);
+        } finally {
+          try { unlinkSync(tempScript); } catch {}
+        }
+      } else {
+        throw normalError;
+      }
+    }
   } catch (error) {
     console.error(`Failed to unregister task "${taskId}":`, error);
     throw error;
@@ -493,12 +514,28 @@ export async function enableTask(taskId: string): Promise<void> {
     const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /ENABLE`;
 
-    await execAsync(command, {
-      timeout: PS_TIMEOUT_MS,
-      encoding: 'utf-8',
-    });
-
-    console.error(`✓ Task "${taskName}" enabled`);
+    try {
+      await execAsync(command, {
+        timeout: PS_TIMEOUT_MS,
+        encoding: 'utf-8',
+      });
+      console.error(`✓ Task "${taskName}" enabled`);
+    } catch (normalError: any) {
+      if (isAccessDeniedError(normalError)) {
+        console.error('Administrator privileges required. Requesting elevation...');
+        const tempScript = join(tmpdir(), `cron-agents-enable-${taskId}-${Date.now()}.ps1`);
+        writeFileSync(tempScript, `Enable-ScheduledTask -TaskName '${taskName}'`, 'utf-8');
+        try {
+          const elevatedCommand = `powershell.exe -NoProfile -NonInteractive -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
+          await execAsync(elevatedCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
+          console.error(`✓ Task "${taskName}" enabled with elevated privileges`);
+        } finally {
+          try { unlinkSync(tempScript); } catch {}
+        }
+      } else {
+        throw normalError;
+      }
+    }
   } catch (error) {
     console.error(`Failed to enable task "${taskId}":`, error);
     throw error;
@@ -513,12 +550,28 @@ export async function disableTask(taskId: string): Promise<void> {
     const taskName = await findScheduledTaskName(taskId) || `CronAgents_${taskId}`;
     const command = `schtasks /Change /TN "${taskName}" /DISABLE`;
 
-    await execAsync(command, {
-      timeout: PS_TIMEOUT_MS,
-      encoding: 'utf-8',
-    });
-
-    console.error(`✓ Task "${taskName}" disabled`);
+    try {
+      await execAsync(command, {
+        timeout: PS_TIMEOUT_MS,
+        encoding: 'utf-8',
+      });
+      console.error(`✓ Task "${taskName}" disabled`);
+    } catch (normalError: any) {
+      if (isAccessDeniedError(normalError)) {
+        console.error('Administrator privileges required. Requesting elevation...');
+        const tempScript = join(tmpdir(), `cron-agents-disable-${taskId}-${Date.now()}.ps1`);
+        writeFileSync(tempScript, `Disable-ScheduledTask -TaskName '${taskName}'`, 'utf-8');
+        try {
+          const elevatedCommand = `powershell.exe -NoProfile -NonInteractive -Command "Start-Process powershell -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '${tempScript}' -Verb RunAs -Wait"`;
+          await execAsync(elevatedCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
+          console.error(`✓ Task "${taskName}" disabled with elevated privileges`);
+        } finally {
+          try { unlinkSync(tempScript); } catch {}
+        }
+      } else {
+        throw normalError;
+      }
+    }
   } catch (error) {
     console.error(`Failed to disable task "${taskId}":`, error);
     throw error;
