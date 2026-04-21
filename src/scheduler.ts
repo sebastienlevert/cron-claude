@@ -294,9 +294,11 @@ function buildFullTaskXml(
 ): string {
   const triggerXml = buildTriggerXml(trigger);
 
-  // Escape XML special characters in the inner command
+  // Convert double-quoted args to single-quoted so they don't break the
+  // outer "..." of PowerShell's -Command parameter, then XML-escape everything.
+  const psArgs = executorArgs.replace(/"/g, "'");
   const escapedNodePath = escapeXml(nodePath);
-  const escapedArgs = escapeXml(executorArgs);
+  const escapedArgs = escapeXml(psArgs);
 
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
