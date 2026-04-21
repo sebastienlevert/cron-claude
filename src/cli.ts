@@ -9,7 +9,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
-import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } from './scheduler.js';
+import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus, getAllTaskStatuses } from './scheduler.js';
 import { executeTask, dryRunTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
@@ -108,11 +108,14 @@ program
       return;
     }
 
+    // Bulk-fetch all statuses in one PowerShell call
+    const statuses = await getAllTaskStatuses();
+
     console.log('Scheduled Tasks:\n');
 
     for (const task of tasks) {
       try {
-        const status = await getTaskStatus(task.id);
+        const status = statuses.get(task.id) || { exists: false };
         const full = getTask(task.id);
 
         console.log(`📋 ${task.id}`);

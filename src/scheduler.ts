@@ -581,6 +581,42 @@ export async function disableTask(taskId: string): Promise<void> {
 }
 
 /**
+ * Bulk-fetch status for all cron-agents tasks in a single PowerShell call.
+ * Returns a map from taskId → status. Much faster than per-task queries.
+ */
+export async function getAllTaskStatuses(): Promise<Map<string, {
+  exists: boolean;
+  enabled?: boolean;
+  lastRunTime?: string;
+  nextRunTime?: string;
+}>> {
+  const result = new Map<string, { exists: boolean; enabled?: boolean; lastRunTime?: string; nextRunTime?: string }>();
+  try {
+    const psCommand = `powershell.exe -NoProfile -NonInteractive -Command "Get-ScheduledTask | Where-Object { $_.TaskName -like 'cron-agents-*' } | ForEach-Object { $info = Get-ScheduledTaskInfo -TaskName $_.TaskName -ErrorAction SilentlyContinue; [PSCustomObject]@{ TaskName=$_.TaskName; State=$_.State.ToString(); LastRunTime=if($info){$info.LastRunTime}else{$null}; NextRunTime=if($info){$info.NextRunTime}else{$null} } } | ConvertTo-Json -Depth 2"`;
+    const { stdout } = await execAsync(psCommand, { timeout: PS_TIMEOUT_MS, encoding: 'utf-8' });
+    if (!stdout.trim()) return result;
+
+    const parsed = JSON.parse(stdout);
+    // PowerShell returns a single object (not array) when there's exactly one result
+    const tasks = Array.isArray(parsed) ? parsed : [parsed];
+
+    for (const t of tasks) {
+      // Extract taskId from "cron-agents-<taskId>"
+      const taskId = (t.TaskName as string).replace(/^cron-agents-/, '');
+      result.set(taskId, {
+        exists: true,
+        enabled: t.State === 'Ready',
+        lastRunTime: t.LastRunTime,
+        nextRunTime: t.NextRunTime,
+      });
+    }
+  } catch {
+    // If the bulk query fails, return empty — callers can fall back
+  }
+  return result;
+}
+
+/**
  * Get task status from Windows Task Scheduler
  */
 export async function getTaskStatus(taskId: string): Promise<{

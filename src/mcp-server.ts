@@ -15,7 +15,7 @@ import { readFileSync, readdirSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
-import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus } from './scheduler.js';
+import { registerTask, unregisterTask, enableTask, disableTask, getTaskStatus, getAllTaskStatuses } from './scheduler.js';
 import { executeTask, dryRunTask } from './executor.js';
 import { verifyLogFile } from './logger.js';
 import { loadConfig, getConfigDir } from './config.js';
@@ -449,11 +449,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           };
         }
 
+        // Bulk-fetch all task statuses in one PowerShell call
+        const statuses = await getAllTaskStatuses();
+
         let output = 'Scheduled Tasks:\n\n';
 
         for (const task of tasks) {
           try {
-            const status = await getTaskStatus(task.id);
+            const status = statuses.get(task.id) || { exists: false };
 
             output += `📋 ${task.id}\n`;
             output += `   Schedule: ${task.schedule}\n`;
