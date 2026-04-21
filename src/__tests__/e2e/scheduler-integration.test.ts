@@ -134,6 +134,7 @@ vi.mock('../../agents.js', () => ({
 
 // Track temp .ps1 script writes/deletions via fs mock
 const ps1WriteTracker = vi.fn();
+const vbsWriteTracker = vi.fn();
 const ps1UnlinkTracker = vi.fn();
 
 vi.mock('fs', async (importOriginal) => {
@@ -144,6 +145,9 @@ vi.mock('fs', async (importOriginal) => {
       const filePath = args[0] as string;
       if (typeof filePath === 'string' && filePath.endsWith('.ps1')) {
         ps1WriteTracker(filePath, args[1]);
+      }
+      if (typeof filePath === 'string' && filePath.endsWith('.vbs')) {
+        vbsWriteTracker(filePath, args[1]);
       }
       return actual.writeFileSync(...(args as Parameters<typeof actual.writeFileSync>));
     }),
@@ -185,6 +189,7 @@ beforeEach(() => {
   writeTestConfig(dirs);
   resetExecMock();
   ps1WriteTracker.mockClear();
+  vbsWriteTracker.mockClear();
   ps1UnlinkTracker.mockClear();
 
   // Default: node detection returns a fake path
@@ -250,29 +255,32 @@ describe('registerTask', () => {
 
     expect(ps1WriteTracker).toHaveBeenCalled();
     const scriptContent = ps1WriteTracker.mock.calls[0][1] as string;
-    // The XML in the script contains the node path in <Command>
-    expect(scriptContent).toContain('<Command>');
-    expect(scriptContent).toContain('node.exe');
+    // The XML in the script uses wscript.exe to launch a hidden VBS shim
+    expect(scriptContent).toContain('<Command>wscript.exe</Command>');
+    // The VBS file contains the actual node + powershell command
+    expect(vbsWriteTracker).toHaveBeenCalled();
+    const vbsContent = vbsWriteTracker.mock.calls[0][1] as string;
+    expect(vbsContent).toContain('node.exe');
   });
 
-  it('includes executor path and task file path in arguments', async () => {
+  it('includes executor path and task file path in VBS launcher', async () => {
     setExecResponse(/Bypass -File/, { stdout: 'registered' });
 
     await registerTask('arg-test', TASK_FILE, '0 9 * * *', PROJECT_ROOT);
 
-    const scriptContent = ps1WriteTracker.mock.calls[0][1] as string;
-    expect(scriptContent).toContain('executor.js');
-    expect(scriptContent).toContain('my-task.md');
+    const vbsContent = vbsWriteTracker.mock.calls[0][1] as string;
+    expect(vbsContent).toContain('executor.js');
+    expect(vbsContent).toContain('my-task.md');
   });
 
-  it('with claude agent includes agent path in arguments', async () => {
+  it('with claude agent includes agent path in VBS launcher', async () => {
     setExecResponse(/Bypass -File/, { stdout: 'registered' });
 
     await registerTask('claude-task', TASK_FILE, '0 9 * * *', PROJECT_ROOT, 'claude');
 
-    const scriptContent = ps1WriteTracker.mock.calls[0][1] as string;
-    // detectAgentPath('claude') returns 'claude-code', included in XML Arguments
-    expect(scriptContent).toContain('claude-code');
+    const vbsContent = vbsWriteTracker.mock.calls[0][1] as string;
+    // detectAgentPath('claude') returns 'claude-code', included in VBS command
+    expect(vbsContent).toContain('claude-code');
   });
 
   it('with copilot agent includes different agent path', async () => {
@@ -280,9 +288,9 @@ describe('registerTask', () => {
 
     await registerTask('copilot-task', TASK_FILE, '0 9 * * *', PROJECT_ROOT, 'copilot');
 
-    const scriptContent = ps1WriteTracker.mock.calls[0][1] as string;
-    // detectAgentPath('copilot') returns 'copilot' — single-quoted and XML-escaped in task XML
-    expect(scriptContent).toContain("&apos;copilot&apos;");
+    const vbsContent = vbsWriteTracker.mock.calls[0][1] as string;
+    // detectAgentPath('copilot') returns 'copilot' — single-quoted in VBS command
+    expect(vbsContent).toContain("'copilot'");
   });
 
   it('creates temp .ps1 file, execs it, and cleans up', async () => {

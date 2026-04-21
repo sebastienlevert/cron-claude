@@ -6,8 +6,8 @@
 import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
 import { resolve, join } from 'path';
-import { writeFileSync, unlinkSync } from 'fs';
-import { tmpdir } from 'os';
+import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { tmpdir, homedir } from 'os';
 import cron from 'node-cron';
 import { AgentType } from './types.js';
 import { detectAgentPath, getAgentConfig, getDefaultAgent } from './agents.js';
@@ -284,10 +284,40 @@ function buildTriggerXml(trigger: ScheduleTrigger): string {
 }
 
 /**
+ * Get the directory for per-task VBScript launcher files.
+ */
+function getScriptsDir(): string {
+  const dir = join(homedir(), '.cron-agents', 'scripts');
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+/**
+ * Write a per-task VBScript file that launches the command completely hidden.
+ * wscript.exe is a GUI host (no console), and WScript.Shell.Run with
+ * vbHide (0) ensures the child process window is never shown.
+ * Returns the path to the .vbs file.
+ */
+function writeHiddenLaunchScript(taskId: string, command: string): string {
+  const scriptsDir = getScriptsDir();
+  const vbsPath = join(scriptsDir, `cron-agents-${taskId}.vbs`);
+  // In VBScript, double a quote inside a string literal to escape it
+  const escapedCmd = command.replace(/"/g, '""');
+  const vbs = `CreateObject("WScript.Shell").Run "${escapedCmd}", 0, True\n`;
+  writeFileSync(vbsPath, vbs, 'utf-8');
+  return vbsPath;
+}
+
+/**
  * Generate full Task Scheduler XML for a task.
- * Wraps execution in powershell -WindowStyle Hidden so no console window is visible.
+ * Uses a per-task VBScript file launched via wscript.exe to run the command
+ * completely invisibly. PowerShell's -WindowStyle Hidden alone still flashes
+ * a console window when started by Task Scheduler.
  */
 function buildFullTaskXml(
+  taskId: string,
   nodePath: string,
   executorArgs: string,
   trigger: ScheduleTrigger
@@ -295,10 +325,15 @@ function buildFullTaskXml(
   const triggerXml = buildTriggerXml(trigger);
 
   // Convert double-quoted args to single-quoted so they don't break the
-  // outer "..." of PowerShell's -Command parameter, then XML-escape everything.
+  // outer "..." of PowerShell's -Command parameter.
   const psArgs = executorArgs.replace(/"/g, "'");
-  const escapedNodePath = escapeXml(nodePath);
-  const escapedArgs = escapeXml(psArgs);
+
+  // Build the PowerShell command that will actually run
+  const psCommand = `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "& '${nodePath}' ${psArgs}"`;
+
+  // Write a per-task VBScript that launches the command with no visible window
+  const vbsPath = writeHiddenLaunchScript(taskId, psCommand);
+  const escapedVbsPath = escapeXml(vbsPath);
 
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -322,8 +357,8 @@ function buildFullTaskXml(
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -Command "&amp; '${escapedNodePath}' ${escapedArgs}"</Arguments>
+      <Command>wscript.exe</Command>
+      <Arguments>//nologo //B &quot;${escapedVbsPath}&quot;</Arguments>
     </Exec>
   </Actions>
 </Task>`;
@@ -355,7 +390,7 @@ export function generateTaskSchedulerCommand(
   const nodePath = detectNodePath();
   const executorArgs = `"${executorPath}" "${absoluteTaskPath}"`;
 
-  const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
+  const taskXml = buildFullTaskXml(taskId, nodePath, executorArgs, trigger);
 
   // Use XML-based registration for accurate trigger types
   const psScript = `
@@ -411,7 +446,7 @@ export async function registerTask(
       : `"${executorPath}" "${absoluteTaskPath}"`;
 
     // Generate full task XML with correct trigger type
-    const taskXml = buildFullTaskXml(nodePath, executorArgs, trigger);
+    const taskXml = buildFullTaskXml(taskId, nodePath, executorArgs, trigger);
 
     // Write a PowerShell script with embedded XML to avoid encoding issues
     const scheduledTaskName = buildScheduledTaskName(taskId, cronExpr);
